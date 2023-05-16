@@ -12,4 +12,12 @@ Then, install the requirements.txt as follows:
 $ pip install requirements.txt
 ```
 
+# Running the Demo
+
+To launch the demo script:
+```
+$ python demo.py
+```
+
+It will use the first web camera available on your machine
 
