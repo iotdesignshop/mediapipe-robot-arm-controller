@@ -16,7 +16,7 @@ $ pip install -r requirements.txt
 
 ### Windows
 ```
-python3 -m venv mp_env
+python -m venv mp_env
 .\mp_env\Scripts\activate
 ```
 Then, install the requirements.txt as follows:
