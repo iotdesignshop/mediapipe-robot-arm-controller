@@ -21,3 +21,14 @@ $ python demo.py
 
 It will use the first web camera available on your machine
 
+## What am I seeing?
+The demo will open with a video view (note this is mirrored so that you can move more organically) which displays computed values for the skeletal pose (right shoulder down to right hand currently). 
+
+It will also open 3 planar projection views for X=0 (Side View), Y=0 (Top View), and Z=0 (Front View).
+
+In those views, the joints being used for the calculations will be highlighted:
+
+- Cyan (Elbow Calculation)
+- Magenata (Shoulder Yaw Calculation)
+- Yellow (Shoulder Pitch Calculation)
+
