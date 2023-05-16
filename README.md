@@ -16,7 +16,7 @@ $ pip install -r requirements.txt
 
 To launch the demo script:
 ```
-$ python demo.py
+$ python controller.py
 ```
 
 It will use the first web camera available on your machine
