@@ -9,7 +9,7 @@ $ python3 -m venv mp_env && source mp_env/bin/activate
 ```
 Then, install the requirements.txt as follows:
 ```
-$ pip install requirements.txt
+$ pip install -r requirements.txt
 ```
 
 # Running the Demo
