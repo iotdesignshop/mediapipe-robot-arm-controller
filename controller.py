@@ -5,6 +5,7 @@ import numpy as np
 mp_drawing = mp.solutions.drawing_utils
 mp_drawing_styles = mp.solutions.drawing_styles
 mp_pose = mp.solutions.pose
+mp_holistic = mp.solutions.holistic
 
 def visibilityToColour(vis):
   if (vis < 0.5):
@@ -27,9 +28,9 @@ def angle(a, b, c):
 
 # For webcam input:
 cap = cv2.VideoCapture(0)
-with mp_pose.Pose(
+with mp_holistic.Holistic(
     min_detection_confidence=0.5,
-    min_tracking_confidence=0.5) as pose:
+    min_tracking_confidence=0.5) as holistic:
   while cap.isOpened():
     success, image = cap.read()
     if not success:
@@ -41,7 +42,7 @@ with mp_pose.Pose(
     # pass by reference.
     image.flags.writeable = False
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    results = pose.process(image)
+    results = holistic.process(image)
 
     # Draw the pose annotation on the image.
     image.flags.writeable = True
@@ -49,8 +50,15 @@ with mp_pose.Pose(
     mp_drawing.draw_landmarks(
         image,
         results.pose_landmarks,
-        mp_pose.POSE_CONNECTIONS,
-        landmark_drawing_spec=mp_drawing_styles.get_default_pose_landmarks_style())
+        mp_holistic.POSE_CONNECTIONS,
+        landmark_drawing_spec=mp_drawing_styles
+        .get_default_pose_landmarks_style())
+    mp_drawing.draw_landmarks(
+        image,
+        results.right_hand_landmarks,
+        mp_holistic.HAND_CONNECTIONS,
+        landmark_drawing_spec=mp_drawing_styles
+        .get_default_hand_landmarks_style())
     
     # Calculate the angle of the right elbow joint
     if results.pose_landmarks is not None:
@@ -99,16 +107,10 @@ with mp_pose.Pose(
         
         cv2.rectangle(flipped_image, (int(image.shape[1] - screen_right_shoulder.x * image.shape[1]) + 5, int(screen_right_shoulder.y * image.shape[0]) - 15), (int(image.shape[1] - screen_right_shoulder.x * image.shape[1]) + 200, int(screen_right_shoulder.y * image.shape[0]) + 5), (0, 0, 0), -1)
         cv2.putText(flipped_image, "Sh Yaw:{:.2f} Pit:{:.2f}".format(5+right_shoulder_yaw, right_shoulder_pitch), (int(image.shape[1] - screen_right_shoulder.x * image.shape[1]), int(screen_right_shoulder.y * image.shape[0])), cv2.FONT_HERSHEY_SIMPLEX, 0.5, visibilityToColour(right_shoulder.visibility), 1, cv2.LINE_AA)
-
-        
-        
     
     cv2.imshow('MediaPipe Pose', flipped_image)
 
-
-    # Render orthogonal views of the landmarks
-
-    # Create an empty image with a red background
+    # Create images for the 3 planar projection views
     window_size = 256
     xaxis = np.zeros((window_size, window_size, 3), np.uint8)
     xaxis[:] = (0, 0, 127)
@@ -117,7 +119,7 @@ with mp_pose.Pose(
     zaxis = np.zeros((window_size, window_size, 3), np.uint8)
     zaxis[:] = (127, 0, 0)
     
-    # Print out all of the world landmarks and their names
+    # Draw planar projection views for debugging
     if results.pose_world_landmarks is not None:
         last = None
         names = ['Wrist','Elbow','RSho','RHip', 'LHip', 'LSho']
