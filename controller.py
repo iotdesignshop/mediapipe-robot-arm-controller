@@ -152,6 +152,7 @@ with mp_pose.Pose(
                 cv2.line(xaxis, (landmark[2], landmark[1]+yoffset), (last[2], last[1]+yoffset), (255, 255, 255), 1)
             last = landmark
 
+            # Draw debug info for the shoulder pitch
             if pitchmode == "Top View":
                # Draw a yellow line between the shoulder and the elbow
                 cv2.line(yaxis, (world_landmarks[2][0], world_landmarks[2][2]+yoffset), (world_landmarks[1][0], world_landmarks[1][2]+yoffset), (0, 255, 255), 2)
@@ -166,7 +167,17 @@ with mp_pose.Pose(
                 # Draw a yellow line between the sholder and the hip
                 cv2.line(xaxis, (world_landmarks[2][2], world_landmarks[2][1]+yoffset), (world_landmarks[3][2], world_landmarks[3][1]+yoffset), (0, 255, 255), 2)
                 
-
+            # Draw debug info for the elbow angle
+            # Draw a cyan line between the shoulder and the elbow
+            cv2.line(zaxis, (world_landmarks[2][0]+2, world_landmarks[2][1]+yoffset+2), (world_landmarks[1][0]+2, world_landmarks[1][1]+yoffset+2), (255, 255, 0), 2)
+            # Draw a cyan line between the elbow and the wrist
+            cv2.line(zaxis, (world_landmarks[1][0], world_landmarks[1][1]+yoffset), (world_landmarks[0][0], world_landmarks[0][1]+yoffset), (255, 255, 0), 2)
+            
+            # Draw debug info for the shoulder yaw
+            # Draw a magenta line between the shoulder and the hip
+            cv2.line(zaxis, (world_landmarks[2][0], world_landmarks[2][1]+yoffset), (world_landmarks[3][0], world_landmarks[3][1]+yoffset), (255, 0, 255), 2)
+            # Draw a magenta line between the shoulder and the elbow
+            cv2.line(zaxis, (world_landmarks[2][0], world_landmarks[2][1]+yoffset), (world_landmarks[1][0], world_landmarks[1][1]+yoffset), (255, 0, 255), 2)
 
     cv2.imshow('YZ Plane (Side View)',xaxis)
     cv2.imshow('XZ Plane (Top View)',yaxis)
