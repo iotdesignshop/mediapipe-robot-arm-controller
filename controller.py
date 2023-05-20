@@ -7,6 +7,7 @@ import math
 mp_drawing = mp.solutions.drawing_utils
 mp_drawing_styles = mp.solutions.drawing_styles
 mp_pose = mp.solutions.pose
+mp_hand = mp.solutions.hands
 mp_holistic = mp.solutions.holistic
 
 def visibilityToColour(vis):
@@ -26,6 +27,41 @@ def angle(a, b, c):
     angle = np.arccos(cosine_angle)
 
     return np.degrees(angle)
+
+def landmark_to_np(landmark):
+  # Create a numpy array of the landmark positions
+  landmark_np = np.array([landmark.x, landmark.y, landmark.z])
+  return landmark_np
+
+# Calculate a rotation matrix that will take a vector and rotate it so that Y points up
+def calculate_y_up_matrix(v):
+   # Normalize the vector
+    v = v / np.linalg.norm(v)
+
+    # Compute the rotation axis
+    axis = np.cross(v, np.array([0.0, 1.0, 0.0]))
+    axis = axis / np.linalg.norm(axis)
+
+    # Compute the rotation angle
+    angle = -np.arccos(np.dot(v, np.array([0.0, 1.0, 0.0])))
+    
+    # Compute the rotation matrix using the axis-angle representation
+    axis_crossproduct_matrix = np.array([
+        [0, -axis[2], axis[1]],
+        [axis[2], 0, -axis[0]],
+        [-axis[1], axis[0], 0]
+    ])
+
+    # Compute final rotation matrix
+    rotation_matrix = (
+        np.eye(3) +
+        np.sin(angle) * axis_crossproduct_matrix +
+        (1 - np.cos(angle)) * np.dot(axis_crossproduct_matrix, axis_crossproduct_matrix)
+    )
+
+    return rotation_matrix
+
+
   
 def calculate_pose_angles(pose_world_landmarks):
   # Grab our points of interest for easy access
@@ -71,7 +107,7 @@ def calculate_hand_angles(hand_landmarks):
   joint_angles[0] = angle(joint_xyz[0], joint_xyz[5], joint_xyz[8])
   joint_angles[1] = angle(joint_xyz[9], joint_xyz[5], joint_xyz[6])
   joint_angles[2] = angle(joint_xyz[5], joint_xyz[6], joint_xyz[7])
-  print(joint_angles[0], joint_angles[1], joint_angles[2])
+  #print(joint_angles[0], joint_angles[1], joint_angles[2])
   
   # Second finger, middle
   joint_angles[3] = angle(joint_xyz[0], joint_xyz[9], joint_xyz[12])
@@ -116,7 +152,7 @@ def calculate_hand_angles(hand_landmarks):
   joint_angles[18] = angle(joint_xyz[5], joint_xyz[17], towards)
   joint_angles[18] = np.clip(joint_angles[18], 0, 180)
   
-  print(joint_angles[16], joint_angles[17], joint_angles[18])
+  #print(joint_angles[16], joint_angles[17], joint_angles[18])
 
   return joint_angles
 
@@ -203,11 +239,11 @@ with mp_holistic.Holistic(
     # Create images for the 3 planar projection views
     window_size = 256
     xaxis = np.zeros((window_size, window_size, 3), np.uint8)
-    xaxis[:] = (0, 0, 127)
+    xaxis[:] = (0, 0, 64)
     yaxis = np.zeros((window_size, window_size, 3), np.uint8)
-    yaxis[:] = (0, 127, 0)
+    yaxis[:] = (0, 64, 0)
     zaxis = np.zeros((window_size, window_size, 3), np.uint8)
-    zaxis[:] = (127, 0, 0)
+    zaxis[:] = (64, 0, 0)
     
     # Draw planar projection views for debugging
     if results.pose_world_landmarks is not None:
@@ -232,6 +268,32 @@ with mp_holistic.Holistic(
         normal /= np.linalg.norm(normal)
         ncp = cp+(normal*20.0)
 
+        # TS - Notes on Pose model landmarks for hand:
+        #   Basically, they don't really work. The rotation of the hand is not accurately
+        #   captured by the mediapipe pose model. Regardless of the wrist angle, the points
+        #   returned by the model will basically be the same. So, as of the current version
+        #   of the model I'm using (May 2023) it's not useful for hand rotation estimation.
+        #   Leaving this code here in case we want to try again in the future with new models. 
+
+        # # Estimate center of hand
+        # hand_pose_landmarks = np.array([
+        #   landmark_to_np(results.pose_world_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_WRIST]), 
+        #   landmark_to_np(results.pose_world_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_INDEX]),
+        #   landmark_to_np(results.pose_world_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_PINKY])])
+        # hand_pose_landmarks += 0.5
+        # hand_pose_landmarks *= window_size
+        
+        # # Sum these coordinates and divide by 3 to get the center
+        # hpcp = np.array([0.0, 0.0, 0.0])
+        # for p in hand_pose_landmarks:
+        #     hpcp += p
+        # hpcp /= 3.0 
+
+        # # Compute the normal to the center of the hand
+        # hnormal = np.cross(hand_pose_landmarks[1]-hand_pose_landmarks[0],hand_pose_landmarks[2]-hand_pose_landmarks[0])
+        # hnormal /= np.linalg.norm(hnormal)
+        # hpncp = hpcp+(hnormal*20.0)
+        
 
         yoffset = int(window_size*.25)
 
@@ -239,6 +301,8 @@ with mp_holistic.Holistic(
         world_landmarks = world_landmarks.astype(int)
         cp = cp.astype(int)
         ncp = ncp.astype(int)
+        #hpcp = hpcp.astype(int)
+        #hpncp = hpncp.astype(int)
 
         for idx in range(len(world_landmarks)):
             landmark = world_landmarks[idx]
@@ -292,52 +356,104 @@ with mp_holistic.Holistic(
             cv2.line(yaxis, (cp[0], cp[2]+yoffset), (ncp[0], ncp[2]+yoffset), (255, 255, 0), 2)
             cv2.line(xaxis, (cp[2], cp[1]+yoffset), (ncp[2], ncp[1]+yoffset), (255, 255, 0), 2)
 
+            # TS - See notes above for why this isn't useful
+            # # Draw hand center in each view
+            # cv2.circle(zaxis, (hpcp[0], hpcp[1]+yoffset), 2, (255, 255, 0), -1)
+            # cv2.circle(yaxis, (hpcp[0], hpcp[2]+yoffset), 2, (255, 255, 0), -1)
+            # cv2.circle(xaxis, (hpcp[2], hpcp[1]+yoffset), 2, (255, 255, 0), -1)
+
+            # # Draw normal line
+            # cv2.line(zaxis, (hpcp[0], hpcp[1]+yoffset), (hpncp[0], hpncp[1]+yoffset), (255, 255, 0), 2)
+            # cv2.line(yaxis, (hpcp[0], hpcp[2]+yoffset), (hpncp[0], hpncp[2]+yoffset), (255, 255, 0), 2)
+            # cv2.line(xaxis, (hpcp[2], hpcp[1]+yoffset), (hpncp[2], hpncp[1]+yoffset), (255, 255, 0), 2)
+
+
 
             hand_landmarks = results.right_hand_landmarks
             if hand_landmarks is not None:
+              
               # Create a numpy array of the hand landmarks
               hand_points = np.array([[hand_landmarks.landmark[i].x, hand_landmarks.landmark[i].y, hand_landmarks.landmark[i].z] for i in range(21)]) 
 
+              # Make a copy of the array for the normalized positions
+              hand_points_norm = deepcopy(hand_points)
+              hand_points_norm -= hand_points_norm[0] # Move all points relative to the wrist
+
+              # Compute up vector for the hand
+              normalized_up = hand_points_norm[mp_hand.HandLandmark.WRIST] - hand_points_norm[mp_hand.HandLandmark.MIDDLE_FINGER_MCP]
+              normalized_up /= np.linalg.norm(normalized_up)
+
+              # Compute matrix to rotate the hand so that the middle finger points up
+              hand_rotation_matrix = calculate_y_up_matrix(normalized_up)
+
+              # Transform the hand points to the new coordinate system
+              hand_points_norm = np.matmul(hand_points_norm, hand_rotation_matrix)
+
+              
               # Model does not seem to be in the same origin as the pose, so we need to translate
               # the hand points to the pose frame of reference
               pose_wrist = np.array([results.pose_world_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_WRIST].x, results.pose_world_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_WRIST].y, results.pose_world_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_WRIST].z])
               delta = pose_wrist - hand_points[0]
               hand_points += delta
 
-              # Center the landmarks in the window
+              # Estimate the center of the palm
+              hcp = (hand_points[0]+hand_points[5]+hand_points[17])/3.0
+
+              # Compute the normal to the center of the palm
+              hup = hand_points[9]-hand_points[0]
+              hup /= np.linalg.norm(hup)
+
+              hright = hand_points[5]-hand_points[17]
+              hright /= np.linalg.norm(hright)
+
+              hnormal = np.cross(hright, hup)
+              hnormal /= np.linalg.norm(hnormal)
+
+              hncp = np.array([hcp+hright*0.2, hcp+hup*0.2, hcp+hnormal*0.2])
+
+
+              # Translate the points for rendering in center of screen
               hand_points += 0.5
+              hcp += 0.5
+              hncp += 0.5
+              hand_points_norm *= 0.5 # Scale down the normalized points
+              hand_points_norm += 0.5
 
               # Scale the landmarks to fit in the window
               hand_points *= window_size
+              hcp *= window_size
+              hncp *= window_size
+              hand_points_norm *= window_size
 
-              # Estimate the center of the hand
-              hcp = (hand_points[0]+hand_points[5]+hand_points[17])/3.0
-
-              # Compute the normal to the center of the hand
-              hnormal = np.cross(hand_points[17]-hand_points[5],hand_points[0]-hand_points[5])
-              hnormal /= np.linalg.norm(hnormal)
-              hcp = hcp.astype(int)
-              hncp = hcp+(hnormal*20.0)
-              
-              # To integers
+              # To integers for OpenCV drawing
               hand_points = hand_points.astype(int)
               hncp = hncp.astype(int)
+              hcp = hcp.astype(int)
+              hand_points_norm = hand_points_norm.astype(int)
               
-              # Draw hand points in each view
+              # Draw hand points in each view, with unrotated hand in top right of window
               for i in range(21):
                 cv2.circle(zaxis, (hand_points[i][0], hand_points[i][1]+yoffset), 2, (255, 255, 255), -1)
                 cv2.circle(yaxis, (hand_points[i][0], hand_points[i][2]+yoffset), 2, (255, 255, 255), -1)
                 cv2.circle(xaxis, (hand_points[i][2], hand_points[i][1]+yoffset), 2, (255, 255, 255), -1)
+
+                cv2.circle(zaxis, (hand_points_norm[i][0]+100, hand_points_norm[i][1]+100), 2, (0, 255, 255), -1)
+                cv2.circle(yaxis, (hand_points_norm[i][0]+100, hand_points_norm[i][2]+100), 2, (0, 255, 255), -1)
+                cv2.circle(xaxis, (hand_points_norm[i][2]+100, hand_points_norm[i][1]+100), 2, (0, 255, 255), -1)
+
 
               # Draw hand center in each view
               cv2.circle(zaxis, (hcp[0], hcp[1]+yoffset), 2, (255, 255, 0), -1)
               cv2.circle(yaxis, (hcp[0], hcp[2]+yoffset), 2, (255, 255, 0), -1)
               cv2.circle(xaxis, (hcp[2], hcp[1]+yoffset), 2, (255, 255, 0), -1)
 
-              # Draw normal line
-              cv2.line(zaxis, (hcp[0], hcp[1]+yoffset), (hncp[0], hncp[1]+yoffset), (255, 255, 0), 2)
-              cv2.line(yaxis, (hcp[0], hcp[2]+yoffset), (hncp[0], hncp[2]+yoffset), (255, 255, 0), 2)
-              cv2.line(xaxis, (hcp[2], hcp[1]+yoffset), (hncp[2], hncp[1]+yoffset), (255, 255, 0), 2)
+              # Draw coordinate system for hand center
+              cols = [(0, 0, 255), (0, 255, 0), (255, 0, 0)]
+              for i,pt in enumerate(hncp):
+                 cv2.line(zaxis, (hcp[0], hcp[1]+yoffset), (pt[0], pt[1]+yoffset), cols[i], 2)
+                 cv2.line(yaxis, (hcp[0], hcp[2]+yoffset), (pt[0], pt[2]+yoffset), cols[i], 2)
+                 cv2.line(xaxis, (hcp[2], hcp[1]+yoffset), (pt[2], pt[1]+yoffset), cols[i], 2)
+                 
 
                    
                   
