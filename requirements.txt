@@ -1,2 +1,4 @@
-mediapipe==0.10.0
+mediapipe>=0.10.0
+depthai>=2.21.2.0
+blobconverter>=1.4.1
 
