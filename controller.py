@@ -93,7 +93,7 @@ def calculate_pose_angles(pose_world_landmarks):
   
   return right_elbow_angle,right_shoulder_yaw,right_shoulder_pitch,pitchmode
 
-def calculate_hand_angles(hand_landmarks):
+def calculate_hand_angles(hand_landmarks,wrist_rotation):
   joint_xyz = np.zeros((21, 3))
   for i in range(21):
     joint_xyz[i] = ([hand_landmarks.landmark[i].x, hand_landmarks.landmark[i].y, hand_landmarks.landmark[i].z])
@@ -143,7 +143,7 @@ def calculate_hand_angles(hand_landmarks):
   joint_angles[16] = np.clip(joint_angles[16], 0, 180)
   
 
-  #joint_angles[17] = math.degrees(hand.rotation) + 45
+  joint_angles[17] = wrist_rotation
   #print(joint_angles[17])
   #oint_angles[17] = np.clip(joint_angles[17], 0, 90)
 
@@ -194,8 +194,51 @@ with mp_holistic.Holistic(
         
     
     # Calculate hand angles
+    hand_points = None
+    wrist_rotation = 0.0
     if results.right_hand_landmarks is not None:
-       hand_angles = calculate_hand_angles(results.right_hand_landmarks)
+      hand_landmarks = results.right_hand_landmarks
+          
+      # Create a numpy array of the hand landmarks
+      hand_points = np.array([[hand_landmarks.landmark[i].x, hand_landmarks.landmark[i].y, hand_landmarks.landmark[i].z] for i in range(21)]) 
+
+      # Make a copy of the array for the normalized positions
+      hand_points_norm = deepcopy(hand_points)
+      hand_points_norm -= hand_points_norm[0] # Move all points relative to the wrist
+
+      # Compute up vector for the hand
+      normalized_up = hand_points_norm[mp_hand.HandLandmark.WRIST] - hand_points_norm[mp_hand.HandLandmark.MIDDLE_FINGER_MCP]
+      normalized_up /= np.linalg.norm(normalized_up)
+
+      # Compute matrix to rotate the hand so that the middle finger points up
+      hand_rotation_matrix = calculate_y_up_matrix(normalized_up)
+
+      # Transform the hand points to the new coordinate system
+      hand_points_norm = np.matmul(hand_points_norm, hand_rotation_matrix)
+
+      # Use normalized points to calculate hand rotation in the Y=0 plane
+      index = hand_points_norm[mp_hand.HandLandmark.INDEX_FINGER_MCP]
+      pinky = hand_points_norm[mp_hand.HandLandmark.PINKY_MCP]
+      xaxis = hand_points_norm[mp_hand.HandLandmark.PINKY_MCP] + np.array([1.0,0.0,0.0]) 
+      rel = index - pinky
+
+      # Depending on which side of the hand the thumb is on, the angle will be positive or negative
+      if (rel[2] >= 0):
+        wrist_rotation = angle(
+          np.array([index[0], index[2]]),
+          np.array([pinky[0], pinky[2]]),
+          np.array([xaxis[0], xaxis[2]]))
+      else:
+        wrist_rotation = 360-angle(
+          np.array([index[0], index[2]]),
+          np.array([pinky[0], pinky[2]]),
+          np.array([xaxis[0], xaxis[2]]))
+      
+      # This is currently set so that palm facing screen is zero degrees. Adjust if needed
+      #wrist_rotation = 90.0 - wrist_rotation
+      print(wrist_rotation)
+
+      hand_angles = calculate_hand_angles(results.right_hand_landmarks,wrist_rotation)
     
     # Calculate pose angles
     if results.pose_world_landmarks is not None:
@@ -203,7 +246,7 @@ with mp_holistic.Holistic(
         right_elbow_angle,right_shoulder_yaw,right_shoulder_pitch,pitchmode = calculate_pose_angles(results.pose_world_landmarks)
 
     # Calculate a point to approximate the center of the torso at the midpoint between the left shoulder and right hip
-    if results.pose_world_landmarks is not None:
+    if results.pose_landmarks is not None:
         right_hip = results.pose_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_HIP]
         left_shoulder = results.pose_landmarks.landmark[mp_pose.PoseLandmark.LEFT_SHOULDER]
         torso_center = np.array([right_hip.x+left_shoulder.x, right_hip.y+left_shoulder.y, right_hip.z+left_shoulder.z])/2.0
@@ -369,90 +412,69 @@ with mp_holistic.Holistic(
 
 
 
-            hand_landmarks = results.right_hand_landmarks
-            if hand_landmarks is not None:
-              
-              # Create a numpy array of the hand landmarks
-              hand_points = np.array([[hand_landmarks.landmark[i].x, hand_landmarks.landmark[i].y, hand_landmarks.landmark[i].z] for i in range(21)]) 
+        if results.right_hand_landmarks is not None:  
+          # Model does not seem to be in the same origin as the pose, so we need to translate
+          # the hand points to the pose frame of reference
+          pose_wrist = np.array([results.pose_world_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_WRIST].x, results.pose_world_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_WRIST].y, results.pose_world_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_WRIST].z])
+          delta = pose_wrist - hand_points[0]
+          hand_points += delta
 
-              # Make a copy of the array for the normalized positions
-              hand_points_norm = deepcopy(hand_points)
-              hand_points_norm -= hand_points_norm[0] # Move all points relative to the wrist
+          # Estimate the center of the palm
+          hcp = (hand_points[0]+hand_points[5]+hand_points[17])/3.0
 
-              # Compute up vector for the hand
-              normalized_up = hand_points_norm[mp_hand.HandLandmark.WRIST] - hand_points_norm[mp_hand.HandLandmark.MIDDLE_FINGER_MCP]
-              normalized_up /= np.linalg.norm(normalized_up)
+          # Compute the normal to the center of the palm
+          hup = hand_points[9]-hand_points[0]
+          hup /= np.linalg.norm(hup)
 
-              # Compute matrix to rotate the hand so that the middle finger points up
-              hand_rotation_matrix = calculate_y_up_matrix(normalized_up)
+          hright = hand_points[5]-hand_points[17]
+          hright /= np.linalg.norm(hright)
 
-              # Transform the hand points to the new coordinate system
-              hand_points_norm = np.matmul(hand_points_norm, hand_rotation_matrix)
+          hnormal = np.cross(hright, hup)
+          hnormal /= np.linalg.norm(hnormal)
 
-              
-              # Model does not seem to be in the same origin as the pose, so we need to translate
-              # the hand points to the pose frame of reference
-              pose_wrist = np.array([results.pose_world_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_WRIST].x, results.pose_world_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_WRIST].y, results.pose_world_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_WRIST].z])
-              delta = pose_wrist - hand_points[0]
-              hand_points += delta
-
-              # Estimate the center of the palm
-              hcp = (hand_points[0]+hand_points[5]+hand_points[17])/3.0
-
-              # Compute the normal to the center of the palm
-              hup = hand_points[9]-hand_points[0]
-              hup /= np.linalg.norm(hup)
-
-              hright = hand_points[5]-hand_points[17]
-              hright /= np.linalg.norm(hright)
-
-              hnormal = np.cross(hright, hup)
-              hnormal /= np.linalg.norm(hnormal)
-
-              hncp = np.array([hcp+hright*0.2, hcp+hup*0.2, hcp+hnormal*0.2])
+          hncp = np.array([hcp+hright*0.2, hcp+hup*0.2, hcp+hnormal*0.2])
 
 
-              # Translate the points for rendering in center of screen
-              hand_points += 0.5
-              hcp += 0.5
-              hncp += 0.5
-              hand_points_norm *= 0.5 # Scale down the normalized points
-              hand_points_norm += 0.5
+          # Translate the points for rendering in center of screen
+          hand_points += 0.5
+          hcp += 0.5
+          hncp += 0.5
+          hand_points_norm *= 0.5 # Scale down the normalized points
+          hand_points_norm += 0.5
 
-              # Scale the landmarks to fit in the window
-              hand_points *= window_size
-              hcp *= window_size
-              hncp *= window_size
-              hand_points_norm *= window_size
+          # Scale the landmarks to fit in the window
+          hand_points *= window_size
+          hcp *= window_size
+          hncp *= window_size
+          hand_points_norm *= window_size
 
-              # To integers for OpenCV drawing
-              hand_points = hand_points.astype(int)
-              hncp = hncp.astype(int)
-              hcp = hcp.astype(int)
-              hand_points_norm = hand_points_norm.astype(int)
-              
-              # Draw hand points in each view, with unrotated hand in top right of window
-              for i in range(21):
-                cv2.circle(zaxis, (hand_points[i][0], hand_points[i][1]+yoffset), 2, (255, 255, 255), -1)
-                cv2.circle(yaxis, (hand_points[i][0], hand_points[i][2]+yoffset), 2, (255, 255, 255), -1)
-                cv2.circle(xaxis, (hand_points[i][2], hand_points[i][1]+yoffset), 2, (255, 255, 255), -1)
+          # To integers for OpenCV drawing
+          hand_points = hand_points.astype(int)
+          hncp = hncp.astype(int)
+          hcp = hcp.astype(int)
+          hand_points_norm = hand_points_norm.astype(int)
+          
+          # Draw hand points in each view, with unrotated hand in top right of window
+          for i in range(21):
+            cv2.circle(zaxis, (hand_points[i][0], hand_points[i][1]+yoffset), 2, (255, 255, 255), -1)
+            cv2.circle(yaxis, (hand_points[i][0], hand_points[i][2]+yoffset), 2, (255, 255, 255), -1)
+            cv2.circle(xaxis, (hand_points[i][2], hand_points[i][1]+yoffset), 2, (255, 255, 255), -1)
 
-                cv2.circle(zaxis, (hand_points_norm[i][0]+100, hand_points_norm[i][1]+100), 2, (0, 255, 255), -1)
-                cv2.circle(yaxis, (hand_points_norm[i][0]+100, hand_points_norm[i][2]+100), 2, (0, 255, 255), -1)
-                cv2.circle(xaxis, (hand_points_norm[i][2]+100, hand_points_norm[i][1]+100), 2, (0, 255, 255), -1)
+            cv2.circle(zaxis, (hand_points_norm[i][0]+100, hand_points_norm[i][1]+100), 2, (0, 255, 255), -1)
+            cv2.circle(yaxis, (hand_points_norm[i][0]+100, hand_points_norm[i][2]+100), 2, (0, 255, 255), -1)
+            cv2.circle(xaxis, (hand_points_norm[i][2]+100, hand_points_norm[i][1]+100), 2, (0, 255, 255), -1)
 
+          # Draw hand center in each view
+          cv2.circle(zaxis, (hcp[0], hcp[1]+yoffset), 2, (255, 255, 0), -1)
+          cv2.circle(yaxis, (hcp[0], hcp[2]+yoffset), 2, (255, 255, 0), -1)
+          cv2.circle(xaxis, (hcp[2], hcp[1]+yoffset), 2, (255, 255, 0), -1)
 
-              # Draw hand center in each view
-              cv2.circle(zaxis, (hcp[0], hcp[1]+yoffset), 2, (255, 255, 0), -1)
-              cv2.circle(yaxis, (hcp[0], hcp[2]+yoffset), 2, (255, 255, 0), -1)
-              cv2.circle(xaxis, (hcp[2], hcp[1]+yoffset), 2, (255, 255, 0), -1)
-
-              # Draw coordinate system for hand center
-              cols = [(0, 0, 255), (0, 255, 0), (255, 0, 0)]
-              for i,pt in enumerate(hncp):
-                 cv2.line(zaxis, (hcp[0], hcp[1]+yoffset), (pt[0], pt[1]+yoffset), cols[i], 2)
-                 cv2.line(yaxis, (hcp[0], hcp[2]+yoffset), (pt[0], pt[2]+yoffset), cols[i], 2)
-                 cv2.line(xaxis, (hcp[2], hcp[1]+yoffset), (pt[2], pt[1]+yoffset), cols[i], 2)
+          # Draw coordinate system for hand center
+          cols = [(0, 0, 255), (0, 255, 0), (255, 0, 0)]
+          for i,pt in enumerate(hncp):
+              cv2.line(zaxis, (hcp[0], hcp[1]+yoffset), (pt[0], pt[1]+yoffset), cols[i], 2)
+              cv2.line(yaxis, (hcp[0], hcp[2]+yoffset), (pt[0], pt[2]+yoffset), cols[i], 2)
+              cv2.line(xaxis, (hcp[2], hcp[1]+yoffset), (pt[2], pt[1]+yoffset), cols[i], 2)
                  
 
                    
