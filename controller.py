@@ -71,7 +71,7 @@ def calculate_pose_angles(pose_world_landmarks):
   left_shoulder = pose_world_landmarks.landmark[mp_pose.PoseLandmark.LEFT_SHOULDER]
   right_hip = pose_world_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_HIP]
 
-  # Calculate the angle of the right elbow joint
+  # Calculate the angle of the right elbow joint in the Z=0 plane (Front View)
   right_elbow_angle = angle(np.array([right_shoulder.x, right_shoulder.y]), np.array([right_elbow.x, right_elbow.y]), np.array([right_wrist.x, right_wrist.y]))
   
   # Invert angle to match robot arm
@@ -131,6 +131,152 @@ def calculate_finger_angles(joint_angles, joint_xyz):
   return joint_angles
 
 
+def drawDebugViews(results, hand_points, hcp, hncp, hand_points_norm, pitchmode):
+  # Create images for the 3 planar projection views
+  window_size = 256
+  xaxis = np.zeros((window_size, window_size, 3), np.uint8)
+  xaxis[:] = (0, 0, 64)
+  yaxis = np.zeros((window_size, window_size, 3), np.uint8)
+  yaxis[:] = (0, 64, 0)
+  zaxis = np.zeros((window_size, window_size, 3), np.uint8)
+  zaxis[:] = (64, 0, 0)
+  
+  # Draw planar projection views for debugging
+  if results.pose_world_landmarks is not None:
+      last = None
+      names = ['Wrist','Elbow','RSho','RHip', 'LHip', 'LSho']
+      joints = [mp_pose.PoseLandmark.RIGHT_WRIST, mp_pose.PoseLandmark.RIGHT_ELBOW, mp_pose.PoseLandmark.RIGHT_SHOULDER, mp_pose.PoseLandmark.RIGHT_HIP, mp_pose.PoseLandmark.LEFT_HIP, mp_pose.PoseLandmark.LEFT_SHOULDER]
+      
+      # Put all the world landmark positions for the joints into numpi array
+      world_landmarks = np.array([[results.pose_world_landmarks.landmark[i].x, results.pose_world_landmarks.landmark[i].y, results.pose_world_landmarks.landmark[i].z] for i in joints])
+      
+      # Center the landmarks in the window
+      world_landmarks += 0.5
+
+      # Scale the landmarks to fit in the window
+      world_landmarks *= window_size
+
+      # Estimate center of torso
+      cp = (world_landmarks[2]+world_landmarks[4])/2.0
+
+      # Compute the normal to the center of the torso
+      normal = np.cross(world_landmarks[3]-world_landmarks[2],world_landmarks[4]-world_landmarks[2])
+      normal /= np.linalg.norm(normal)
+      ncp = cp+(normal*20.0)
+
+      # To bump the rendering down a bit to use the window better
+      yoffset = int(window_size*.25)
+
+      # To integers
+      world_landmarks = world_landmarks.astype(int)
+      cp = cp.astype(int)
+      ncp = ncp.astype(int)
+      
+      for idx in range(len(world_landmarks)):
+          landmark = world_landmarks[idx]
+          #print(i, landmark)
+          cv2.circle(zaxis, (landmark[0], landmark[1]+yoffset), 2, (255, 255, 255), -1)
+          cv2.circle(yaxis, (landmark[0], landmark[2]+yoffset), 2, (255, 255, 255), -1)
+          cv2.circle(xaxis, (landmark[2], landmark[1]+yoffset), 2, (255, 255, 255), -1)
+          cv2.putText(zaxis, names[idx], (landmark[0], landmark[1]+yoffset), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+          cv2.putText(yaxis, names[idx], (landmark[0], landmark[2]+yoffset), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+          cv2.putText(xaxis, names[idx], (landmark[2], landmark[1]+yoffset), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+          if last is not None:
+              cv2.line(zaxis, (landmark[0], landmark[1]+yoffset), (last[0], last[1]+yoffset), (255, 255, 255), 1)
+              cv2.line(yaxis, (landmark[0], landmark[2]+yoffset), (last[0], last[2]+yoffset), (255, 255, 255), 1)
+              cv2.line(xaxis, (landmark[2], landmark[1]+yoffset), (last[2], last[1]+yoffset), (255, 255, 255), 1)
+          last = landmark
+
+          # Draw debug info for the shoulder pitch
+          if pitchmode == "Top View":
+              # Draw a yellow line between the shoulder and the elbow
+              cv2.line(yaxis, (world_landmarks[2][0], world_landmarks[2][2]+yoffset), (world_landmarks[1][0], world_landmarks[1][2]+yoffset), (0, 255, 255), 2)
+
+              # Draw a yellow line between the right shoulder and the left shoulder
+              cv2.line(yaxis, (world_landmarks[2][0], world_landmarks[2][2]+yoffset), (world_landmarks[5][0], world_landmarks[5][2]+yoffset), (0, 255, 255), 2)
+
+          else:
+              # Draw a yellow line between the shoulder and the elbow
+              cv2.line(xaxis, (world_landmarks[2][2], world_landmarks[2][1]+yoffset), (world_landmarks[1][2], world_landmarks[1][1]+yoffset), (0, 255, 255), 2)
+              
+              # Draw a yellow line between the sholder and the hip
+              cv2.line(xaxis, (world_landmarks[2][2], world_landmarks[2][1]+yoffset), (world_landmarks[3][2], world_landmarks[3][1]+yoffset), (0, 255, 255), 2)
+              
+          # Draw debug info for the elbow angle
+          # Draw a cyan line between the shoulder and the elbow
+          cv2.line(zaxis, (world_landmarks[2][0]+2, world_landmarks[2][1]+yoffset+2), (world_landmarks[1][0]+2, world_landmarks[1][1]+yoffset+2), (255, 255, 0), 2)
+          # Draw a cyan line between the elbow and the wrist
+          cv2.line(zaxis, (world_landmarks[1][0], world_landmarks[1][1]+yoffset), (world_landmarks[0][0], world_landmarks[0][1]+yoffset), (255, 255, 0), 2)
+          
+          # Draw debug info for the shoulder yaw
+          # Draw a magenta line between the shoulder and the hip
+          cv2.line(zaxis, (world_landmarks[2][0], world_landmarks[2][1]+yoffset), (world_landmarks[3][0], world_landmarks[3][1]+yoffset), (255, 0, 255), 2)
+          # Draw a magenta line between the shoulder and the elbow
+          cv2.line(zaxis, (world_landmarks[2][0], world_landmarks[2][1]+yoffset), (world_landmarks[1][0], world_landmarks[1][1]+yoffset), (255, 0, 255), 2)
+
+          # Draw torso center in each view
+          cv2.circle(zaxis, (cp[0], cp[1]+yoffset), 2, (255, 255, 0), -1)
+          cv2.circle(yaxis, (cp[0], cp[2]+yoffset), 2, (255, 255, 0), -1)
+          cv2.circle(xaxis, (cp[2], cp[1]+yoffset), 2, (255, 255, 0), -1)
+          
+          # Draw normal line
+          cv2.line(zaxis, (cp[0], cp[1]+yoffset), (ncp[0], ncp[1]+yoffset), (255, 255, 0), 2)
+          cv2.line(yaxis, (cp[0], cp[2]+yoffset), (ncp[0], ncp[2]+yoffset), (255, 255, 0), 2)
+          cv2.line(xaxis, (cp[2], cp[1]+yoffset), (ncp[2], ncp[1]+yoffset), (255, 255, 0), 2)
+
+
+      if results.right_hand_landmarks is not None:  
+        
+        # Translate the points for rendering in center of screen
+        hand_points += 0.5
+        hcp += 0.5
+        hncp += 0.5
+        hand_points_norm *= 0.5 # Scale down the normalized points
+        hand_points_norm += 0.5
+
+        # Scale the landmarks to fit in the window
+        hand_points *= window_size
+        hcp *= window_size
+        hncp *= window_size
+        hand_points_norm *= window_size
+
+        # To integers for OpenCV drawing
+        hand_points = hand_points.astype(int)
+        hncp = hncp.astype(int)
+        hcp = hcp.astype(int)
+        hand_points_norm = hand_points_norm.astype(int)
+        
+        # Draw hand points in each view, with unrotated hand in top right of window
+        for i in range(21):
+          cv2.circle(zaxis, (hand_points[i][0], hand_points[i][1]+yoffset), 2, (255, 255, 255), -1)
+          cv2.circle(yaxis, (hand_points[i][0], hand_points[i][2]+yoffset), 2, (255, 255, 255), -1)
+          cv2.circle(xaxis, (hand_points[i][2], hand_points[i][1]+yoffset), 2, (255, 255, 255), -1)
+
+          cv2.circle(zaxis, (hand_points_norm[i][0]+100, hand_points_norm[i][1]+100), 2, (0, 255, 255), -1)
+          cv2.circle(yaxis, (hand_points_norm[i][0]+100, hand_points_norm[i][2]+100), 2, (0, 255, 255), -1)
+          cv2.circle(xaxis, (hand_points_norm[i][2]+100, hand_points_norm[i][1]+100), 2, (0, 255, 255), -1)
+
+        # Draw hand center in each view
+        cv2.circle(zaxis, (hcp[0], hcp[1]+yoffset), 2, (255, 255, 0), -1)
+        cv2.circle(yaxis, (hcp[0], hcp[2]+yoffset), 2, (255, 255, 0), -1)
+        cv2.circle(xaxis, (hcp[2], hcp[1]+yoffset), 2, (255, 255, 0), -1)
+
+        # Draw coordinate system for hand center
+        cols = [(0, 0, 255), (0, 255, 0), (255, 0, 0)]
+        for i,pt in enumerate(hncp):
+            cv2.line(zaxis, (hcp[0], hcp[1]+yoffset), (pt[0], pt[1]+yoffset), cols[i], 2)
+            cv2.line(yaxis, (hcp[0], hcp[2]+yoffset), (pt[0], pt[2]+yoffset), cols[i], 2)
+            cv2.line(xaxis, (hcp[2], hcp[1]+yoffset), (pt[2], pt[1]+yoffset), cols[i], 2)
+                
+
+                  
+                
+  cv2.imshow('YZ Plane (Side View)',xaxis)
+  cv2.imshow('XZ Plane (Top View)',yaxis)
+  cv2.imshow('XY Plane (Front View)',zaxis)
+
+
+
 # For webcam input:
 cap = cv2.VideoCapture(0)
 with mp_holistic.Holistic(
@@ -165,9 +311,6 @@ with mp_holistic.Holistic(
         landmark_drawing_spec=mp_drawing_styles
         .get_default_hand_landmarks_style())   
     
-        
-    
-    
     # Create array with enough space for all calculated angles
     joint_angles = np.zeros(23)
 
@@ -181,6 +324,9 @@ with mp_holistic.Holistic(
           
       # Create a numpy array of the hand landmarks
       hand_points = np.array([[hand_landmarks.landmark[i].x, hand_landmarks.landmark[i].y, hand_landmarks.landmark[i].z] for i in range(21)]) 
+
+      # The idea here is to rotate the hand so that the middle finger points up to make it more consistent to pick off
+      # angles including the rotation angle around the wrist which isn't easily obtained otherwise.
 
       # Make a copy of the array for the normalized positions
       hand_points_norm = deepcopy(hand_points)
@@ -209,7 +355,7 @@ with mp_holistic.Holistic(
         np.array([pinky[0], pinky[2]]),
         np.array([zaxis[0], zaxis[2]]))
       
-      if (rel[0] < 0):
+      if (rel[0] < 0): # Look at X axis direction beteen index finger mcp and pinky to determine direction of hand
         wrist_rotation = 360-wrist_rotation
     
       
@@ -220,7 +366,7 @@ with mp_holistic.Holistic(
       
       # Model does not seem to be in the same origin as the pose, so we need to translate
       # the hand points to the pose frame of reference if we want to compare them
-      pose_wrist = np.array([results.pose_world_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_WRIST].x, results.pose_world_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_WRIST].y, results.pose_world_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_WRIST].z])
+      pose_wrist = landmark_to_np(results.pose_world_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_WRIST])
       delta = pose_wrist - hand_points[0]
       hand_points += delta
 
@@ -234,23 +380,23 @@ with mp_holistic.Holistic(
       hright = hand_points[5]-hand_points[17]
       hright /= np.linalg.norm(hright)
 
-      hnormal = np.cross(hright, hup)
-      hnormal /= np.linalg.norm(hnormal)
+      hand_normal = np.cross(hright, hup)
+      hand_normal /= np.linalg.norm(hand_normal)
 
-      hncp = np.array([hcp+hright*0.2, hcp+hup*0.2, hcp+hnormal*0.2])
+      hncp = np.array([hcp+hright*0.2, hcp+hup*0.2, hcp+hand_normal*0.2])
 
-      # Calculate the angle between the normal and the forearm
+      # Wrist pitch
       right_elbow = landmark_to_np(results.pose_world_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_ELBOW])
-      fk = hand_points[0]+hnormal
+      fk = hand_points[0]+hand_normal
       joint_angles[16] = angle(fk, hand_points[0], right_elbow)-30.0  # The 30.0 is an empirical fudge factor - I don't know why this angle is offset
       
-      # Use Middle finger calculate wrist pitch
-      wrist_pitch = angle(hand_points[mp_hand.HandLandmark.MIDDLE_FINGER_MCP], hand_points[mp_hand.HandLandmark.WRIST], np.array([1.0,0,0]))
-      joint_angles[17] = wrist_pitch
+      # Use Middle finger calculate wrist yaw
+      wrist_yaw = angle(hand_points[mp_hand.HandLandmark.MIDDLE_FINGER_MCP], hand_points[mp_hand.HandLandmark.WRIST], np.array([1.0,0,0]))
+      joint_angles[17] = wrist_yaw
 
-      # Rotation around long axis of forearm
+      # Wrist roll
       joint_angles[18] = wrist_rotation
-      print(int(joint_angles[16]), int(joint_angles[17]), int(joint_angles[18]))
+      #print(int(joint_angles[16]), int(joint_angles[17]), int(joint_angles[18]))
     else: # No hand detected
       is_valid_frame = False
     
@@ -310,190 +456,9 @@ with mp_holistic.Holistic(
     
     cv2.imshow('MediaPipe Pose', flipped_image)
 
-    # Create images for the 3 planar projection views
-    window_size = 256
-    xaxis = np.zeros((window_size, window_size, 3), np.uint8)
-    xaxis[:] = (0, 0, 64)
-    yaxis = np.zeros((window_size, window_size, 3), np.uint8)
-    yaxis[:] = (0, 64, 0)
-    zaxis = np.zeros((window_size, window_size, 3), np.uint8)
-    zaxis[:] = (64, 0, 0)
-    
-    # Draw planar projection views for debugging
-    if results.pose_world_landmarks is not None:
-        last = None
-        names = ['Wrist','Elbow','RSho','RHip', 'LHip', 'LSho']
-        joints = [mp_pose.PoseLandmark.RIGHT_WRIST, mp_pose.PoseLandmark.RIGHT_ELBOW, mp_pose.PoseLandmark.RIGHT_SHOULDER, mp_pose.PoseLandmark.RIGHT_HIP, mp_pose.PoseLandmark.LEFT_HIP, mp_pose.PoseLandmark.LEFT_SHOULDER]
-        
-        # Put all the world landmark positions for the joints into numpi array
-        world_landmarks = np.array([[results.pose_world_landmarks.landmark[i].x, results.pose_world_landmarks.landmark[i].y, results.pose_world_landmarks.landmark[i].z] for i in joints])
-
-        # Center the landmarks in the window
-        world_landmarks += 0.5
-
-        # Scale the landmarks to fit in the window
-        world_landmarks *= window_size
-
-        # Estimate center of torso
-        cp = (world_landmarks[2]+world_landmarks[4])/2.0
-
-        # Compute the normal to the center of the torso
-        normal = np.cross(world_landmarks[3]-world_landmarks[2],world_landmarks[4]-world_landmarks[2])
-        normal /= np.linalg.norm(normal)
-        ncp = cp+(normal*20.0)
-
-        # TS - Notes on Pose model landmarks for hand:
-        #   Basically, they don't really work. The rotation of the hand is not accurately
-        #   captured by the mediapipe pose model. Regardless of the wrist angle, the points
-        #   returned by the model will basically be the same. So, as of the current version
-        #   of the model I'm using (May 2023) it's not useful for hand rotation estimation.
-        #   Leaving this code here in case we want to try again in the future with new models. 
-
-        # # Estimate center of hand
-        # hand_pose_landmarks = np.array([
-        #   landmark_to_np(results.pose_world_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_WRIST]), 
-        #   landmark_to_np(results.pose_world_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_INDEX]),
-        #   landmark_to_np(results.pose_world_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_PINKY])])
-        # hand_pose_landmarks += 0.5
-        # hand_pose_landmarks *= window_size
-        
-        # # Sum these coordinates and divide by 3 to get the center
-        # hpcp = np.array([0.0, 0.0, 0.0])
-        # for p in hand_pose_landmarks:
-        #     hpcp += p
-        # hpcp /= 3.0 
-
-        # # Compute the normal to the center of the hand
-        # hnormal = np.cross(hand_pose_landmarks[1]-hand_pose_landmarks[0],hand_pose_landmarks[2]-hand_pose_landmarks[0])
-        # hnormal /= np.linalg.norm(hnormal)
-        # hpncp = hpcp+(hnormal*20.0)
-        
-
-        yoffset = int(window_size*.25)
-
-        # To integers'
-        world_landmarks = world_landmarks.astype(int)
-        cp = cp.astype(int)
-        ncp = ncp.astype(int)
-        #hpcp = hpcp.astype(int)
-        #hpncp = hpncp.astype(int)
-
-        for idx in range(len(world_landmarks)):
-            landmark = world_landmarks[idx]
-            #print(i, landmark)
-            cv2.circle(zaxis, (landmark[0], landmark[1]+yoffset), 2, (255, 255, 255), -1)
-            cv2.circle(yaxis, (landmark[0], landmark[2]+yoffset), 2, (255, 255, 255), -1)
-            cv2.circle(xaxis, (landmark[2], landmark[1]+yoffset), 2, (255, 255, 255), -1)
-            cv2.putText(zaxis, names[idx], (landmark[0], landmark[1]+yoffset), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
-            cv2.putText(yaxis, names[idx], (landmark[0], landmark[2]+yoffset), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
-            cv2.putText(xaxis, names[idx], (landmark[2], landmark[1]+yoffset), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
-            if last is not None:
-                cv2.line(zaxis, (landmark[0], landmark[1]+yoffset), (last[0], last[1]+yoffset), (255, 255, 255), 1)
-                cv2.line(yaxis, (landmark[0], landmark[2]+yoffset), (last[0], last[2]+yoffset), (255, 255, 255), 1)
-                cv2.line(xaxis, (landmark[2], landmark[1]+yoffset), (last[2], last[1]+yoffset), (255, 255, 255), 1)
-            last = landmark
-
-            # Draw debug info for the shoulder pitch
-            if pitchmode == "Top View":
-               # Draw a yellow line between the shoulder and the elbow
-                cv2.line(yaxis, (world_landmarks[2][0], world_landmarks[2][2]+yoffset), (world_landmarks[1][0], world_landmarks[1][2]+yoffset), (0, 255, 255), 2)
-
-                # Draw a yellow line between the right shoulder and the left shoulder
-                cv2.line(yaxis, (world_landmarks[2][0], world_landmarks[2][2]+yoffset), (world_landmarks[5][0], world_landmarks[5][2]+yoffset), (0, 255, 255), 2)
-
-            else:
-               # Draw a yellow line between the shoulder and the elbow
-                cv2.line(xaxis, (world_landmarks[2][2], world_landmarks[2][1]+yoffset), (world_landmarks[1][2], world_landmarks[1][1]+yoffset), (0, 255, 255), 2)
-                
-                # Draw a yellow line between the sholder and the hip
-                cv2.line(xaxis, (world_landmarks[2][2], world_landmarks[2][1]+yoffset), (world_landmarks[3][2], world_landmarks[3][1]+yoffset), (0, 255, 255), 2)
-                
-            # Draw debug info for the elbow angle
-            # Draw a cyan line between the shoulder and the elbow
-            cv2.line(zaxis, (world_landmarks[2][0]+2, world_landmarks[2][1]+yoffset+2), (world_landmarks[1][0]+2, world_landmarks[1][1]+yoffset+2), (255, 255, 0), 2)
-            # Draw a cyan line between the elbow and the wrist
-            cv2.line(zaxis, (world_landmarks[1][0], world_landmarks[1][1]+yoffset), (world_landmarks[0][0], world_landmarks[0][1]+yoffset), (255, 255, 0), 2)
-            
-            # Draw debug info for the shoulder yaw
-            # Draw a magenta line between the shoulder and the hip
-            cv2.line(zaxis, (world_landmarks[2][0], world_landmarks[2][1]+yoffset), (world_landmarks[3][0], world_landmarks[3][1]+yoffset), (255, 0, 255), 2)
-            # Draw a magenta line between the shoulder and the elbow
-            cv2.line(zaxis, (world_landmarks[2][0], world_landmarks[2][1]+yoffset), (world_landmarks[1][0], world_landmarks[1][1]+yoffset), (255, 0, 255), 2)
-
-            # Draw torso center in each view
-            cv2.circle(zaxis, (cp[0], cp[1]+yoffset), 2, (255, 255, 0), -1)
-            cv2.circle(yaxis, (cp[0], cp[2]+yoffset), 2, (255, 255, 0), -1)
-            cv2.circle(xaxis, (cp[2], cp[1]+yoffset), 2, (255, 255, 0), -1)
-            
-            # Draw normal line
-            cv2.line(zaxis, (cp[0], cp[1]+yoffset), (ncp[0], ncp[1]+yoffset), (255, 255, 0), 2)
-            cv2.line(yaxis, (cp[0], cp[2]+yoffset), (ncp[0], ncp[2]+yoffset), (255, 255, 0), 2)
-            cv2.line(xaxis, (cp[2], cp[1]+yoffset), (ncp[2], ncp[1]+yoffset), (255, 255, 0), 2)
-
-            # TS - See notes above for why this isn't useful
-            # # Draw hand center in each view
-            # cv2.circle(zaxis, (hpcp[0], hpcp[1]+yoffset), 2, (255, 255, 0), -1)
-            # cv2.circle(yaxis, (hpcp[0], hpcp[2]+yoffset), 2, (255, 255, 0), -1)
-            # cv2.circle(xaxis, (hpcp[2], hpcp[1]+yoffset), 2, (255, 255, 0), -1)
-
-            # # Draw normal line
-            # cv2.line(zaxis, (hpcp[0], hpcp[1]+yoffset), (hpncp[0], hpncp[1]+yoffset), (255, 255, 0), 2)
-            # cv2.line(yaxis, (hpcp[0], hpcp[2]+yoffset), (hpncp[0], hpncp[2]+yoffset), (255, 255, 0), 2)
-            # cv2.line(xaxis, (hpcp[2], hpcp[1]+yoffset), (hpncp[2], hpncp[1]+yoffset), (255, 255, 0), 2)
-
-
-
-        if results.right_hand_landmarks is not None:  
-          
-          
-
-          # Translate the points for rendering in center of screen
-          hand_points += 0.5
-          hcp += 0.5
-          hncp += 0.5
-          hand_points_norm *= 0.5 # Scale down the normalized points
-          hand_points_norm += 0.5
-
-          # Scale the landmarks to fit in the window
-          hand_points *= window_size
-          hcp *= window_size
-          hncp *= window_size
-          hand_points_norm *= window_size
-
-          # To integers for OpenCV drawing
-          hand_points = hand_points.astype(int)
-          hncp = hncp.astype(int)
-          hcp = hcp.astype(int)
-          hand_points_norm = hand_points_norm.astype(int)
-          
-          # Draw hand points in each view, with unrotated hand in top right of window
-          for i in range(21):
-            cv2.circle(zaxis, (hand_points[i][0], hand_points[i][1]+yoffset), 2, (255, 255, 255), -1)
-            cv2.circle(yaxis, (hand_points[i][0], hand_points[i][2]+yoffset), 2, (255, 255, 255), -1)
-            cv2.circle(xaxis, (hand_points[i][2], hand_points[i][1]+yoffset), 2, (255, 255, 255), -1)
-
-            cv2.circle(zaxis, (hand_points_norm[i][0]+100, hand_points_norm[i][1]+100), 2, (0, 255, 255), -1)
-            cv2.circle(yaxis, (hand_points_norm[i][0]+100, hand_points_norm[i][2]+100), 2, (0, 255, 255), -1)
-            cv2.circle(xaxis, (hand_points_norm[i][2]+100, hand_points_norm[i][1]+100), 2, (0, 255, 255), -1)
-
-          # Draw hand center in each view
-          cv2.circle(zaxis, (hcp[0], hcp[1]+yoffset), 2, (255, 255, 0), -1)
-          cv2.circle(yaxis, (hcp[0], hcp[2]+yoffset), 2, (255, 255, 0), -1)
-          cv2.circle(xaxis, (hcp[2], hcp[1]+yoffset), 2, (255, 255, 0), -1)
-
-          # Draw coordinate system for hand center
-          cols = [(0, 0, 255), (0, 255, 0), (255, 0, 0)]
-          for i,pt in enumerate(hncp):
-              cv2.line(zaxis, (hcp[0], hcp[1]+yoffset), (pt[0], pt[1]+yoffset), cols[i], 2)
-              cv2.line(yaxis, (hcp[0], hcp[2]+yoffset), (pt[0], pt[2]+yoffset), cols[i], 2)
-              cv2.line(xaxis, (hcp[2], hcp[1]+yoffset), (pt[2], pt[1]+yoffset), cols[i], 2)
-                 
-
-                   
-                  
-    cv2.imshow('YZ Plane (Side View)',xaxis)
-    cv2.imshow('XZ Plane (Top View)',yaxis)
-    cv2.imshow('XY Plane (Front View)',zaxis)
+    # Debug output
+    if (is_valid_frame):
+      drawDebugViews(results, hand_points, hcp, hncp, hand_points_norm, pitchmode)
 
     
         
