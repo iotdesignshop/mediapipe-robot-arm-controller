@@ -84,7 +84,11 @@ There is a python script provided for enumerating serial devices on the system. 
 $ python list_serial_ports.py
 ```
 
-
+This will display a result similar to this
+```
+COM4 - Standard Serial over Bluetooth link (COM4)
+COM3 - Standard Serial over Bluetooth link (COM3)
+```
 
 
 ## What am I seeing?
