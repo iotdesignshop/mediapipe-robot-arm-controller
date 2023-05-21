@@ -2,7 +2,7 @@ import cv2
 import mediapipe as mp
 import numpy as np
 from copy import deepcopy
-import math
+import argparse
 
 mp_drawing = mp.solutions.drawing_utils
 mp_drawing_styles = mp.solutions.drawing_styles
@@ -275,7 +275,23 @@ def drawDebugViews(results, hand_points, hcp, hncp, hand_points_norm, pitchmode)
   cv2.imshow('XZ Plane (Top View)',yaxis)
   cv2.imshow('XY Plane (Front View)',zaxis)
 
+  # Get the width of the 'MediaPipe Pose' window
+  width = cv2.getWindowImageRect('MediaPipe Pose')[2]
 
+
+  # Move the windows over to the right side of the main window and stack them vertically
+  cv2.moveWindow('YZ Plane (Side View)', width, 0)
+  cv2.moveWindow('XZ Plane (Top View)', width, 256)
+  cv2.moveWindow('XY Plane (Front View)', width, 512)
+
+  
+
+
+# Read command line arguments
+parser = argparse.ArgumentParser()
+parser.add_argument('--nodebug', action='store_true', help='Disable debug views')
+
+show_debug_views = not parser.parse_args().nodebug
 
 # For webcam input:
 cap = cv2.VideoCapture(0)
@@ -433,7 +449,7 @@ with mp_holistic.Holistic(
     flipped_image = cv2.flip(image, 1)
 
     # Add annotations after flipping the image
-    if results.pose_world_landmarks is not None:
+    if is_valid_frame and show_debug_views:
         
         # Screen points for drawing text
         screen_right_elbow = results.pose_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_ELBOW]
@@ -457,11 +473,22 @@ with mp_holistic.Holistic(
     cv2.imshow('MediaPipe Pose', flipped_image)
 
     # Debug output
-    if (is_valid_frame):
+    if (is_valid_frame and show_debug_views):
       drawDebugViews(results, hand_points, hcp, hncp, hand_points_norm, pitchmode)
 
     
         
-    if cv2.waitKey(5) & 0xFF == 27:
+    # Keyboard input
+    key = cv2.waitKey(1) & 0xFF    
+    if key == 27:
       break
+    elif key == ord('d'):
+      show_debug_views = not show_debug_views
+      if (not show_debug_views):
+        cv2.destroyWindow('YZ Plane (Side View)')
+        cv2.destroyWindow('XZ Plane (Top View)')
+        cv2.destroyWindow('XY Plane (Front View)')
+    
+      
+
 cap.release()
