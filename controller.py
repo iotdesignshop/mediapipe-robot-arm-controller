@@ -93,21 +93,15 @@ def calculate_pose_angles(pose_world_landmarks):
   
   return right_elbow_angle,right_shoulder_yaw,right_shoulder_pitch,pitchmode
 
-def calculate_hand_angles(hand_landmarks,wrist_rotation):
-  joint_xyz = np.zeros((21, 3))
-  for i in range(21):
-    joint_xyz[i] = ([hand_landmarks.landmark[i].x, hand_landmarks.landmark[i].y, hand_landmarks.landmark[i].z])
+def calculate_finger_angles(joint_angles, joint_xyz):
   
-  # Create array with enough space for all calculated angles
-  joint_angles = np.zeros(23)
-
   # First finger, fore or index
   # Angles calculated correspond to knuckle flex, knuckle yaw and long tendon length for all fingers,
   # note difference in knuckle yaw for little
   joint_angles[0] = angle(joint_xyz[0], joint_xyz[5], joint_xyz[8])
   joint_angles[1] = angle(joint_xyz[9], joint_xyz[5], joint_xyz[6])
   joint_angles[2] = angle(joint_xyz[5], joint_xyz[6], joint_xyz[7])
-  #print(joint_angles[0], joint_angles[1], joint_angles[2])
+  #print(int(joint_angles[0]), int(joint_angles[1]), int(joint_angles[2]))
   
   # Second finger, middle
   joint_angles[3] = angle(joint_xyz[0], joint_xyz[9], joint_xyz[12])
@@ -133,26 +127,6 @@ def calculate_hand_angles(hand_landmarks,wrist_rotation):
   joint_angles[14] = angle(joint_xyz[2], joint_xyz[3], joint_xyz[4])
   joint_angles[15] = angle(joint_xyz[9], joint_xyz[5], joint_xyz[2])
   #print(joint_angles[12], joint_angles[13], joint_angles[14], joint_angles[15])
-
-  #down = [x[:] for x in joint_xyz[0]]
-  down = deepcopy(joint_xyz[0])
-  #print(down, joint_xyz[0])
-  down[2] = down[2] - 0.1
-  #print(down, joint_xyz[0])
-  joint_angles[16] = angle(joint_xyz[9], joint_xyz[0], down)
-  joint_angles[16] = np.clip(joint_angles[16], 0, 180)
-  
-
-  joint_angles[17] = wrist_rotation
-  #print(joint_angles[17])
-  #oint_angles[17] = np.clip(joint_angles[17], 0, 90)
-
-  towards = deepcopy(joint_xyz[17])
-  towards[2] = towards[2] - 0.1
-  joint_angles[18] = angle(joint_xyz[5], joint_xyz[17], towards)
-  joint_angles[18] = np.clip(joint_angles[18], 0, 180)
-  
-  #print(joint_angles[16], joint_angles[17], joint_angles[18])
 
   return joint_angles
 
@@ -193,9 +167,15 @@ with mp_holistic.Holistic(
     
         
     
+    
+    # Create array with enough space for all calculated angles
+    joint_angles = np.zeros(23)
+
     # Calculate hand angles
     hand_points = None
     wrist_rotation = 0.0
+    is_valid_frame = True
+    
     if results.right_hand_landmarks is not None:
       hand_landmarks = results.right_hand_landmarks
           
@@ -219,30 +199,77 @@ with mp_holistic.Holistic(
       # Use normalized points to calculate hand rotation in the Y=0 plane
       index = hand_points_norm[mp_hand.HandLandmark.INDEX_FINGER_MCP]
       pinky = hand_points_norm[mp_hand.HandLandmark.PINKY_MCP]
-      xaxis = hand_points_norm[mp_hand.HandLandmark.PINKY_MCP] + np.array([1.0,0.0,0.0]) 
+      zaxis = hand_points_norm[mp_hand.HandLandmark.PINKY_MCP] + np.array([0.0,0.0,1.0]) 
       rel = index - pinky
 
       # Depending on which side of the hand the thumb is on, the angle will be positive or negative
-      if (rel[2] >= 0):
-        wrist_rotation = angle(
-          np.array([index[0], index[2]]),
-          np.array([pinky[0], pinky[2]]),
-          np.array([xaxis[0], xaxis[2]]))
-      else:
-        wrist_rotation = 360-angle(
-          np.array([index[0], index[2]]),
-          np.array([pinky[0], pinky[2]]),
-          np.array([xaxis[0], xaxis[2]]))
+      # These angles are set up to mimic the results from the previous demo, but can be adjusted if needed
+      wrist_rotation = 180-angle(
+        np.array([index[0], index[2]]),
+        np.array([pinky[0], pinky[2]]),
+        np.array([zaxis[0], zaxis[2]]))
       
-      # This is currently set so that palm facing screen is zero degrees. Adjust if needed
-      #wrist_rotation = 90.0 - wrist_rotation
+      if (rel[0] < 0):
+        wrist_rotation = 360-wrist_rotation
+    
       
-      hand_angles = calculate_hand_angles(results.right_hand_landmarks,wrist_rotation)
+      # Calculate finger joint angles
+      hand_angles = calculate_finger_angles(joint_angles, hand_points_norm)
+
+      # Calculate wrist angles
+      
+      # Model does not seem to be in the same origin as the pose, so we need to translate
+      # the hand points to the pose frame of reference if we want to compare them
+      pose_wrist = np.array([results.pose_world_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_WRIST].x, results.pose_world_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_WRIST].y, results.pose_world_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_WRIST].z])
+      delta = pose_wrist - hand_points[0]
+      hand_points += delta
+
+      # Estimate the center of the palm
+      hcp = (hand_points[0]+hand_points[5]+hand_points[17])/3.0
+
+      # Compute the normal to the center of the palm
+      hup = hand_points[9]-hand_points[0]
+      hup /= np.linalg.norm(hup)
+
+      hright = hand_points[5]-hand_points[17]
+      hright /= np.linalg.norm(hright)
+
+      hnormal = np.cross(hright, hup)
+      hnormal /= np.linalg.norm(hnormal)
+
+      hncp = np.array([hcp+hright*0.2, hcp+hup*0.2, hcp+hnormal*0.2])
+
+      # Calculate the angle between the normal and the forearm
+      right_elbow = landmark_to_np(results.pose_world_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_ELBOW])
+      fk = hand_points[0]+hnormal
+      joint_angles[16] = angle(fk, hand_points[0], right_elbow)-30.0  # The 30.0 is an empirical fudge factor - I don't know why this angle is offset
+      
+      # Use Middle finger calculate wrist pitch
+      wrist_pitch = angle(hand_points[mp_hand.HandLandmark.MIDDLE_FINGER_MCP], hand_points[mp_hand.HandLandmark.WRIST], np.array([1.0,0,0]))
+      joint_angles[17] = wrist_pitch
+
+      # Rotation around long axis of forearm
+      joint_angles[18] = wrist_rotation
+      print(int(joint_angles[16]), int(joint_angles[17]), int(joint_angles[18]))
+    else: # No hand detected
+      is_valid_frame = False
     
     # Calculate pose angles
     if results.pose_world_landmarks is not None:
         # Grab our points of interest for easy access
         right_elbow_angle,right_shoulder_yaw,right_shoulder_pitch,pitchmode = calculate_pose_angles(results.pose_world_landmarks)
+
+        joint_angles[19] = right_shoulder_pitch
+        joint_angles[20] = right_shoulder_yaw
+        joint_angles[21] = 0.0 # Right shoulder roll TBD
+        joint_angles[22] = right_elbow_angle
+    else: # No arm detected
+        is_valid_frame = False
+
+    # Valid data frame?
+    if (is_valid_frame):
+      joint_angles = joint_angles.astype(int)
+      print(joint_angles)
 
     # Calculate a point to approximate the center of the torso at the midpoint between the left shoulder and right hip
     if results.pose_landmarks is not None:
@@ -417,27 +444,8 @@ with mp_holistic.Holistic(
 
 
         if results.right_hand_landmarks is not None:  
-          # Model does not seem to be in the same origin as the pose, so we need to translate
-          # the hand points to the pose frame of reference
-          pose_wrist = np.array([results.pose_world_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_WRIST].x, results.pose_world_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_WRIST].y, results.pose_world_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_WRIST].z])
-          delta = pose_wrist - hand_points[0]
-          hand_points += delta
-
-          # Estimate the center of the palm
-          hcp = (hand_points[0]+hand_points[5]+hand_points[17])/3.0
-
-          # Compute the normal to the center of the palm
-          hup = hand_points[9]-hand_points[0]
-          hup /= np.linalg.norm(hup)
-
-          hright = hand_points[5]-hand_points[17]
-          hright /= np.linalg.norm(hright)
-
-          hnormal = np.cross(hright, hup)
-          hnormal /= np.linalg.norm(hnormal)
-
-          hncp = np.array([hcp+hright*0.2, hcp+hup*0.2, hcp+hnormal*0.2])
-
+          
+          
 
           # Translate the points for rendering in center of screen
           hand_points += 0.5
