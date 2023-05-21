@@ -3,6 +3,8 @@ import mediapipe as mp
 import numpy as np
 from copy import deepcopy
 import argparse
+import opencv_cam
+import depthai_cam
 
 mp_drawing = mp.solutions.drawing_utils
 mp_drawing_styles = mp.solutions.drawing_styles
@@ -246,7 +248,7 @@ def drawDebugViews(results, hand_points, hcp, hncp, hand_points_norm, pitchmode)
         hcp = hcp.astype(int)
         hand_points_norm = hand_points_norm.astype(int)
         
-        # Draw hand points in each view, with unrotated hand in top right of window
+        # Draw hand points in each view, with unrotated hand in lower right of window
         for i in range(21):
           cv2.circle(zaxis, (hand_points[i][0], hand_points[i][1]+yoffset), 2, (255, 255, 255), -1)
           cv2.circle(yaxis, (hand_points[i][0], hand_points[i][2]+yoffset), 2, (255, 255, 255), -1)
@@ -269,20 +271,19 @@ def drawDebugViews(results, hand_points, hcp, hncp, hand_points_norm, pitchmode)
             cv2.line(xaxis, (hcp[2], hcp[1]+yoffset), (pt[2], pt[1]+yoffset), cols[i], 2)
                 
 
-                  
-                
+  # Show the debug views
   cv2.imshow('YZ Plane (Side View)',xaxis)
   cv2.imshow('XZ Plane (Top View)',yaxis)
   cv2.imshow('XY Plane (Front View)',zaxis)
 
-  # Get the width of the 'MediaPipe Pose' window
-  width = cv2.getWindowImageRect('MediaPipe Pose')[2]
-
-
-  # Move the windows over to the right side of the main window and stack them vertically
-  cv2.moveWindow('YZ Plane (Side View)', width, 0)
-  cv2.moveWindow('XZ Plane (Top View)', width, 256)
-  cv2.moveWindow('XY Plane (Front View)', width, 512)
+  
+  # Move the windows over to the left side of the main window and stack them vertically
+  # Only on the first apparence of the debug views, in case the user overrides the positions
+  if not hasattr(drawDebugViews, "views_moved"):
+    cv2.moveWindow('YZ Plane (Side View)', 0, 512)
+    cv2.moveWindow('XZ Plane (Top View)', 0, 256)
+    cv2.moveWindow('XY Plane (Front View)', 0, 0)
+    drawDebugViews.views_moved = True
 
   
 
@@ -290,16 +291,35 @@ def drawDebugViews(results, hand_points, hcp, hncp, hand_points_norm, pitchmode)
 # Read command line arguments
 parser = argparse.ArgumentParser()
 parser.add_argument('--nodebug', action='store_true', help='Disable debug views')
+parser.add_argument('--force-webcam', action='store_true', help='Force webcam input even if DepthAI device is present')
 
 show_debug_views = not parser.parse_args().nodebug
 
-# For webcam input:
-cap = cv2.VideoCapture(0)
+# For the camera, we look to see if there is a DepthAI device connected (OAK-D camera) and prefer that by default
+# If not, we fall through to webcam
+
+# Start with DepthAI camera
+cvcam = depthai_cam.DepthAICam(width=3840, height=2160) # Default to 4k OAK-D
+if (parser.parse_args().force_webcam or cvcam.is_depthai_device_available() is False):
+   # Fall back to default webcam
+   print("No DepthAI device available, falling back to webcam.")
+   cvcam = opencv_cam.OpenCVCam(width=1920,height=1080)
+
+# Start the video strema
+if cvcam.start() is False:
+  print("Failed to start video capture - exiting.")
+  exit()
+
+# Process the video stream
 with mp_holistic.Holistic(
     min_detection_confidence=0.5,
     min_tracking_confidence=0.5) as holistic:
-  while cap.isOpened():
-    success, image = cap.read()
+  while cvcam.is_opened():
+
+    # Start a frame time counter
+    frame_time = cv2.getTickCount()
+
+    success, image = cvcam.read_frame()
     if not success:
       print("Ignoring empty camera frame.")
       # If loading a video, use 'break' instead of 'continue'.
@@ -470,13 +490,21 @@ with mp_holistic.Holistic(
 
     
     
-    cv2.imshow('MediaPipe Pose', flipped_image)
-
+    
     # Debug output
     if (is_valid_frame and show_debug_views):
       drawDebugViews(results, hand_points, hcp, hncp, hand_points_norm, pitchmode)
 
-    
+    # Calculate the frame rate
+    frame_rate = cv2.getTickFrequency() / (cv2.getTickCount() - frame_time)
+
+    # Display frame rate on frame
+    cv2.rectangle(flipped_image, (0, 0), (200, 40), (0, 0, 0), -1)
+    cv2.putText(flipped_image, "FPS: {:.2f}".format(frame_rate), (5, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 1, cv2.LINE_AA)
+
+    # Render view    
+    cv2.imshow('MediaPipe Pose', flipped_image)
+
         
     # Keyboard input
     key = cv2.waitKey(1) & 0xFF    
@@ -490,5 +518,6 @@ with mp_holistic.Holistic(
         cv2.destroyWindow('XY Plane (Front View)')
     
       
-
-cap.release()
+# Clean up camera and windows
+cvcam.stop()
+cv2.destroyAllWindows()
