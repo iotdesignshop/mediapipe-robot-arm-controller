@@ -291,19 +291,25 @@ def drawDebugViews(results, hand_points, hcp, hncp, hand_points_norm, pitchmode)
 # Read command line arguments
 parser = argparse.ArgumentParser()
 parser.add_argument('--nodebug', action='store_true', help='Disable debug views')
-parser.add_argument('--force-webcam', action='store_true', help='Force webcam input even if DepthAI device is present')
-
-show_debug_views = not parser.parse_args().nodebug
+parser.add_argument('--force-webcam', action='store_true', help='Force webcam input even if OAKD device is present')
+parser.add_argument('--oakd-capture-width', type=int, default=3840, help='Set OAKD capture width (default=3840)')
+parser.add_argument('--oakd-capture-height', type=int, default=2160, help='Set OAKD capture height (default=2160)')
+parser.add_argument('--webcam-capture-width', type=int, default=1920, help='Set webcam capture width (default=1920)')
+parser.add_argument('--webcam-capture-height', type=int, default=1080, help='Set webcam capture height (default=1080)')
+parser.add_argument('--preview-width', type=int, default=1280, help='Set preview width (default=1280)')
+parser.add_argument('--preview-height', type=int, default=720, help='Set preview height (default=720)')
+args = parser.parse_args()
+show_debug_views = not args.nodebug
 
 # For the camera, we look to see if there is a DepthAI device connected (OAK-D camera) and prefer that by default
 # If not, we fall through to webcam
 
 # Start with DepthAI camera
-cvcam = depthai_cam.DepthAICam(width=3840, height=2160) # Default to 4k OAK-D
+cvcam = depthai_cam.DepthAICam(width=args.oakd_capture_width,height=args.oakd_capture_height) # Default to 4K OAK-D camera
 if (parser.parse_args().force_webcam or cvcam.is_depthai_device_available() is False):
    # Fall back to default webcam
    print("No DepthAI device available, falling back to webcam.")
-   cvcam = opencv_cam.OpenCVCam(width=1920,height=1080)
+   cvcam = opencv_cam.OpenCVCam(width=args.webcam_capture_width,height=args.webcam_capture_height)
 
 # Start the video strema
 if cvcam.start() is False:
@@ -346,6 +352,9 @@ with mp_holistic.Holistic(
         mp_holistic.HAND_CONNECTIONS,
         landmark_drawing_spec=mp_drawing_styles
         .get_default_hand_landmarks_style())   
+    
+    # Once mediapipe has processed the frame, we can scale it down for display
+    image = cv2.resize(image, (args.preview_width,args.preview_height))
     
     # Create array with enough space for all calculated angles
     joint_angles = np.zeros(23)

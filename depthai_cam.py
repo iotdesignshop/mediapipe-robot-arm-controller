@@ -65,6 +65,12 @@ class DepthAICam:
         self.pipeline = self._create_pipeline()
         self.device = depthai.Device(self.pipeline)
         self.video = self.device.getOutputQueue(name="rgb", maxSize=1, blocking=False)
+
+         # Print MxID, USB speed, and available cameras on the device
+        print('MxId:',self.device.getDeviceInfo().getMxId())
+        print('USB speed:',self.device.getUsbSpeed())
+        print('Connected cameras:',self.device.getConnectedCameras())
+
         return True
 
     def stop(self):
