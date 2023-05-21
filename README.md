@@ -65,6 +65,24 @@ To force webcam use at 720P
 $ python controller.py --force-webcam --webcam-capture-width 1280 --webcam-capture-height 720
 ```
 
+## Serial Communication
+The demo contains the code from the original demo which packs the 23 DOF angles into an integer array and transmits over a serial port of choice. Because the demo won't run without a proper serial port, this function is disabled by default, and has to be enabled on the command -line.
+
+- **enable-serial** - Turns on the serial comms
+- **serial-port** - Sets the serial port (defaults to COM15 as per original demo)
+
+Example:
+
+To launch with serial enabled:
+```
+$ python controller.py --enable-serial --serial-port COM5
+```
+
+### Serial enumeration utility
+There is a python script provided for enumerating serial devices on the system. To see available devices:
+```
+$ python list_serial_ports.py
+```
 
 
 
