@@ -533,7 +533,7 @@ with mp_holistic.Holistic(
       
       # Use Middle finger calculate wrist yaw
       wrist_yaw = angle(hand_points[mp_hand.HandLandmark.MIDDLE_FINGER_MCP], hand_points[mp_hand.HandLandmark.WRIST], np.array([1.0,0,0]))
-      joint_angles[17] = wrist_yaw
+      joint_angles[17] = 180.0-wrist_yaw
 
       # Wrist roll
       joint_angles[18] = wrist_rotation
