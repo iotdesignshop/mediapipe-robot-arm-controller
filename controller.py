@@ -6,6 +6,7 @@ import argparse
 import opencv_cam
 import depthai_cam
 import struct
+import time
 
 mp_drawing = mp.solutions.drawing_utils
 mp_drawing_styles = mp.solutions.drawing_styles
@@ -378,6 +379,7 @@ parser.add_argument('--preview-width', type=int, default=1280, help='Set preview
 parser.add_argument('--preview-height', type=int, default=720, help='Set preview height (default=720)')
 parser.add_argument('--enable-serial', action='store_true', help='Enable serial port output')
 parser.add_argument('--serial-port', type=str, default='COM15', help='Set serial port (default=COM15)')
+parser.add_argument('--serial-fps', type=int, default=10, help='Set serial port output frequency (default=10)')
 args = parser.parse_args()
 show_debug_views = not args.nodebug
 
@@ -395,6 +397,10 @@ if args.enable_serial:
         dsrdtr=False,
         timeout=1
     )
+serial_period = 1.0/args.serial_fps
+
+# Initialize the timestamp with current time
+serial_timestamp = time.time()
 
 
 # For the camera, we look to see if there is a DepthAI device connected (OAK-D camera) and prefer that by default
@@ -554,13 +560,16 @@ with mp_holistic.Holistic(
         is_valid_frame = False
 
     # Valid data frame?
-    if (is_valid_frame):
+    if (is_valid_frame and ((time.time() - serial_timestamp) > serial_period)):
       joint_angles = joint_angles.astype(int)
       print(joint_angles)
 
       # Transmit to arm if serial is enabled
       if args.enable_serial:
-        transmit_angles_serial(ser,joint_angles)
+          transmit_angles_serial(ser,joint_angles)
+
+      # Reset timer    
+      serial_timestamp = time.time()
 
     # Calculate a point to approximate the center of the torso at the midpoint between the left shoulder and right hip
     if results.pose_landmarks is not None:
