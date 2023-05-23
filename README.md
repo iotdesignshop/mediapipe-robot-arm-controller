@@ -71,6 +71,10 @@ The demo contains the code from the original demo which packs the 23 DOF angles 
 - **enable-serial** - Turns on the serial comms
 - **serial-port** - Sets the serial port (defaults to COM15 as per original demo)
 
+The demo defaults to a serial transmission rate of 10hz (fps). This can be adjusted as follows:
+
+- **serial-fps XX** - Sets the transmission rate in frames per second
+
 Example:
 
 To launch with serial enabled:
