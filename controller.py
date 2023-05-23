@@ -562,6 +562,7 @@ with mp_holistic.Holistic(
     # Valid data frame?
     if (is_valid_frame and ((time.time() - serial_timestamp) > serial_period)):
       joint_angles = joint_angles.astype(int)
+      joint_angles = np.clip(joint_angles, 0, 255) # Clip to 8 bit values
       print(joint_angles)
 
       # Transmit to arm if serial is enabled
