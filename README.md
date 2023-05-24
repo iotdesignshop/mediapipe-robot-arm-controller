@@ -94,6 +94,14 @@ COM4 - Standard Serial over Bluetooth link (COM4)
 COM3 - Standard Serial over Bluetooth link (COM3)
 ```
 
+## Low Pass Filter
+By default, a low pass filter is applied to the data read from the skeleton joints to reduce jitter. The amount of filtering can be overriden with a command line parameter:
+
+- **lpf-value 0.XX** - Adjusts the LPF Coefficient
+
+LPF can be entirely disabled by setting this value to 1.0. Any value less than that will blend the current input frame with previous in the ratio specified. For example 0.25 = 25% current frame, 75% historial frame. 
+
+
 
 # What am I seeing in the Demo Visualization
 The demo will open with a video view (note this is mirrored so that you can move more organically) which displays computed values for the skeletal pose (right shoulder down to right hand currently). 
