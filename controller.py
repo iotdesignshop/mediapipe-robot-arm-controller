@@ -373,21 +373,23 @@ serial_timestamp = time.time()
 # Periodic serial transmit function - maintains a maximum transmit rate
 # specified in arguments to the program
 def serial_timer_transmit(fps, ser, joint_angles):
+
   global serial_timestamp
-  serial_period = 1.0/fps
+  serial_period = 1.0/fps    
 
   if (time.time() - serial_timestamp) > serial_period:
       if (args.enable_serial):
         transmit_angles_serial(ser,joint_angles)
 
+      joint_angles = joint_angles.astype(int)
+      joint_angles = np.clip(joint_angles, 0, 255) # Clip to 8 bit values
+  
       print(joint_angles)
       print("Serial FPS: ", 1.0/(time.time()-serial_timestamp))
 
       # Reset timer    
       serial_timestamp = time.time()
-  else:
-    print("Too slow: ", time.time()-serial_timestamp)
-
+  
 # Read command line arguments
 parser = argparse.ArgumentParser()
 parser.add_argument('--nodebug', action='store_true', help='Disable debug views')
@@ -401,6 +403,7 @@ parser.add_argument('--preview-height', type=int, default=720, help='Set preview
 parser.add_argument('--enable-serial', action='store_true', help='Enable serial port output')
 parser.add_argument('--serial-port', type=str, default='COM15', help='Set serial port (default=COM15)')
 parser.add_argument('--serial-fps', type=int, default=20, help='Set serial port output frequency (default=20)')
+parser.add_argument('--lpf-value', type=float, default=0.25, help='Low pass filter value (default=0.25). 1.0 = no filtering')
 args = parser.parse_args()
 show_debug_views = not args.nodebug
 
@@ -440,6 +443,8 @@ if cvcam.start() is False:
 
 # Create array with enough space for all calculated angles
 joint_angles = np.zeros(23)
+is_valid_frame = False
+    
 
 # Process the video stream
 with mp_holistic.Holistic(
@@ -459,7 +464,8 @@ with mp_holistic.Holistic(
     # See if it's time to send serial data - Note: We do this in two places to try avoid
     # beat pattern of computation because of the FPS. In the future, this should
     # be threaded or done in a separate process.
-    serial_timer_transmit(args.serial_fps, ser, joint_angles)
+    if (is_valid_frame):
+      serial_timer_transmit(args.serial_fps, ser, joint_angles)
 
     # To improve performance, optionally mark the image as not writeable to
     # pass by reference.
@@ -486,11 +492,13 @@ with mp_holistic.Holistic(
     # Once mediapipe has processed the frame, we can scale it down for display
     image = cv2.resize(image, (args.preview_width,args.preview_height))
     
+    # Grab last set of joint angles
+    if (joint_angles is not None):
+      prev_joint_angles = joint_angles.astype(np.float32)
     
     # Calculate hand angles
     hand_points = None
     wrist_rotation = 0.0
-    is_valid_frame = True
     
     if results.right_hand_landmarks is not None:
       hand_landmarks = results.right_hand_landmarks
@@ -570,8 +578,6 @@ with mp_holistic.Holistic(
       # Wrist roll
       joint_angles[18] = wrist_rotation
       #print(int(joint_angles[16]), int(joint_angles[17]), int(joint_angles[18]))
-    else: # No hand detected
-      is_valid_frame = False
     
     # Calculate pose angles
     if results.pose_world_landmarks is not None:
@@ -582,17 +588,20 @@ with mp_holistic.Holistic(
         joint_angles[20] = right_shoulder_yaw
         joint_angles[21] = 0.0 # Right shoulder roll TBD
         joint_angles[22] = right_elbow_angle
-    else: # No arm detected
-        is_valid_frame = False
+    
+    # Check to see if the data frame is valid
+    is_valid_frame = results.pose_landmarks is not None and results.right_hand_landmarks is not None
 
     # Valid data frame?
     if (is_valid_frame):
-      joint_angles = joint_angles.astype(int)
-      joint_angles = np.clip(joint_angles, 0, 255) # Clip to 8 bit values
+      
+      # Apply low pass filter
+      joint_angles = (1.0-args.lpf_value)*prev_joint_angles + args.lpf_value*joint_angles
+
       #print(joint_angles)
 
-    # Second check to see if it's time to send serial data
-    serial_timer_transmit(args.serial_fps, ser, joint_angles)
+      # Send updated serial data
+      serial_timer_transmit(args.serial_fps, ser, joint_angles)
 
     # Calculate a point to approximate the center of the torso at the midpoint between the left shoulder and right hip
     if results.pose_landmarks is not None:
