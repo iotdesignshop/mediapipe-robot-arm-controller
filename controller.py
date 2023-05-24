@@ -367,6 +367,27 @@ def transmit_angles_serial(ser,joint_angles):
   ser.flushOutput()
 
 
+# Initialize the timestamp with current time
+serial_timestamp = time.time()
+
+# Periodic serial transmit function - maintains a maximum transmit rate
+# specified in arguments to the program
+def serial_timer_transmit(fps, ser, joint_angles):
+  global serial_timestamp
+  serial_period = 1.0/fps
+
+  if (time.time() - serial_timestamp) > serial_period:
+      if (args.enable_serial):
+        transmit_angles_serial(ser,joint_angles)
+
+      print(joint_angles)
+      print("Serial FPS: ", 1.0/(time.time()-serial_timestamp))
+
+      # Reset timer    
+      serial_timestamp = time.time()
+  else:
+    print("Too slow: ", time.time()-serial_timestamp)
+
 # Read command line arguments
 parser = argparse.ArgumentParser()
 parser.add_argument('--nodebug', action='store_true', help='Disable debug views')
@@ -379,7 +400,7 @@ parser.add_argument('--preview-width', type=int, default=1280, help='Set preview
 parser.add_argument('--preview-height', type=int, default=720, help='Set preview height (default=720)')
 parser.add_argument('--enable-serial', action='store_true', help='Enable serial port output')
 parser.add_argument('--serial-port', type=str, default='COM15', help='Set serial port (default=COM15)')
-parser.add_argument('--serial-fps', type=int, default=10, help='Set serial port output frequency (default=10)')
+parser.add_argument('--serial-fps', type=int, default=20, help='Set serial port output frequency (default=20)')
 args = parser.parse_args()
 show_debug_views = not args.nodebug
 
@@ -397,10 +418,9 @@ if args.enable_serial:
         dsrdtr=False,
         timeout=1
     )
-serial_period = 1.0/args.serial_fps
+else:
+  ser = None
 
-# Initialize the timestamp with current time
-serial_timestamp = time.time()
 
 
 # For the camera, we look to see if there is a DepthAI device connected (OAK-D camera) and prefer that by default
@@ -418,6 +438,9 @@ if cvcam.start() is False:
   print("Failed to start video capture - exiting.")
   exit()
 
+# Create array with enough space for all calculated angles
+joint_angles = np.zeros(23)
+
 # Process the video stream
 with mp_holistic.Holistic(
     min_detection_confidence=0.5,
@@ -432,6 +455,11 @@ with mp_holistic.Holistic(
       print("Ignoring empty camera frame.")
       # If loading a video, use 'break' instead of 'continue'.
       continue
+
+    # See if it's time to send serial data - Note: We do this in two places to try avoid
+    # beat pattern of computation because of the FPS. In the future, this should
+    # be threaded or done in a separate process.
+    serial_timer_transmit(args.serial_fps, ser, joint_angles)
 
     # To improve performance, optionally mark the image as not writeable to
     # pass by reference.
@@ -458,9 +486,7 @@ with mp_holistic.Holistic(
     # Once mediapipe has processed the frame, we can scale it down for display
     image = cv2.resize(image, (args.preview_width,args.preview_height))
     
-    # Create array with enough space for all calculated angles
-    joint_angles = np.zeros(23)
-
+    
     # Calculate hand angles
     hand_points = None
     wrist_rotation = 0.0
@@ -560,17 +586,13 @@ with mp_holistic.Holistic(
         is_valid_frame = False
 
     # Valid data frame?
-    if (is_valid_frame and ((time.time() - serial_timestamp) > serial_period)):
+    if (is_valid_frame):
       joint_angles = joint_angles.astype(int)
       joint_angles = np.clip(joint_angles, 0, 255) # Clip to 8 bit values
-      print(joint_angles)
+      #print(joint_angles)
 
-      # Transmit to arm if serial is enabled
-      if args.enable_serial:
-          transmit_angles_serial(ser,joint_angles)
-
-      # Reset timer    
-      serial_timestamp = time.time()
+    # Second check to see if it's time to send serial data
+    serial_timer_transmit(args.serial_fps, ser, joint_angles)
 
     # Calculate a point to approximate the center of the torso at the midpoint between the left shoulder and right hip
     if results.pose_landmarks is not None:
