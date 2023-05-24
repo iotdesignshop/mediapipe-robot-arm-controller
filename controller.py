@@ -377,9 +377,9 @@ parser.add_argument('--webcam-capture-width', type=int, default=1920, help='Set 
 parser.add_argument('--webcam-capture-height', type=int, default=1080, help='Set webcam capture height (default=1080)')
 parser.add_argument('--preview-width', type=int, default=1280, help='Set preview width (default=1280)')
 parser.add_argument('--preview-height', type=int, default=720, help='Set preview height (default=720)')
-parser.add_argument('--enable-serial', action='store_true', help='Enable serial port output')
-parser.add_argument('--serial-port', type=str, default='COM15', help='Set serial port (default=COM15)')
-parser.add_argument('--serial-fps', type=int, default=10, help='Set serial port output frequency (default=10)')
+parser.add_argument('--enable-serial', action='store_false', help='Enable serial port output')
+parser.add_argument('--serial-port', type=str, default='COM4', help='Set serial port (default=COM15)')
+parser.add_argument('--serial-fps', type=int, default=20, help='Set serial port output frequency (default=10)')
 args = parser.parse_args()
 show_debug_views = not args.nodebug
 
@@ -397,6 +397,7 @@ if args.enable_serial:
         dsrdtr=False,
         timeout=1
     )
+#  serial_period = 0.05
 serial_period = 1.0/args.serial_fps
 
 # Initialize the timestamp with current time
