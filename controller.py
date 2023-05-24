@@ -23,7 +23,8 @@ def visibilityToColour(vis):
     return (0, 255, 0)  # Green - high visibility
   
 def angle(a, b, c):
-    # https://stackoverflow.com/questions/35176451/python-code-to-calculate-angle-between-three-point-using-their-3d-coordinates
+    # https://stackoverflow.com/questions/35176451/python-code-to-calculate-angle-between-three-point
+    # -using-their-3d-coordinates
     # a, b and c : points as np.array([x, y, z]) 
     ba = a - b
     bc = c - b
@@ -76,29 +77,49 @@ def calculate_pose_angles(pose_world_landmarks):
   right_hip = pose_world_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_HIP]
 
   # Calculate the angle of the right elbow joint in the Z=0 plane (Front View)
-  right_elbow_angle = angle(np.array([right_shoulder.x, right_shoulder.y]), np.array([right_elbow.x, right_elbow.y]), np.array([right_wrist.x, right_wrist.y]))
-  
-  # Invert angle to match robot arm
-  right_elbow_angle = 180.0 - right_elbow_angle
+ # right_elbow_angle = angle(np.array([right_shoulder.x, right_shoulder.y]), np.array([right_elbow.x, right_elbow.y]),
+  # np.array([right_wrist.x, right_wrist.y]))
+  right_elbow_angle = angle(np.array([right_shoulder.x, right_shoulder.y, right_shoulder.z]),
+                                     np.array([right_elbow.x, right_elbow.y, right_elbow.z]),
+                                     np.array([right_wrist.x, right_wrist.y, right_wrist.z]))
 
-  # Calculate shoulder Yaw in the Z=0 plane
-  right_shoulder_yaw = angle(np.array([right_hip.x, right_hip.y]), np.array([right_shoulder.x, right_shoulder.y]), np.array([right_elbow.x, right_elbow.y]))
-  
+  # Invert angle to match robot arm 170 by trial and error
+  right_elbow_angle = 170.0 - right_elbow_angle
+
+  #Calculate pitch in the X=0 plane (side view)
+  right_shoulder_pitch = angle(np.array([right_hip.z, right_hip.y]), np.array([right_shoulder.z, right_shoulder.y]),
+                               np.array([right_elbow.z, right_elbow.y]))
+  pitchmode = "Side View"
+  # Calculate shoulder Yaw in 3d
+  right_shoulder_yaw = angle(np.array([left_shoulder.x, left_shoulder.y, left_shoulder.z]), np.array([right_shoulder.x,
+                right_shoulder.y, right_shoulder.z]), np.array([right_elbow.x, right_elbow.y, right_elbow.z])) - 90
+
+  # Calculate roll by difference between yaw and angle to wrist from shoulders
+  right_shoulder_roll = angle(np.array([left_shoulder.x, left_shoulder.y, left_shoulder.z]),
+                                                   np.array([right_shoulder.x, right_shoulder.y, right_shoulder.z]),
+                                                   np.array([right_wrist.x, right_wrist.y, right_wrist.z])) -\
+                        angle(np.array([left_shoulder.x, left_shoulder.y, left_shoulder.z]),
+                              np.array([right_shoulder.x, right_shoulder.y, right_shoulder.z]),
+                              np.array([right_elbow.x, right_elbow.y, right_elbow.z])) + right_shoulder_pitch / 3
+
   # Calculate shoulder Pitch
-  yaw_cutoff = 30.0
-  if (right_shoulder_yaw < yaw_cutoff or right_shoulder_yaw > 180.0-yaw_cutoff):
+  #yaw_cutoff = 30.0
+  #if (right_shoulder_yaw < yaw_cutoff or right_shoulder_yaw > 180.0-yaw_cutoff):
       # Use the X=0 plane (side view) to calculate the pitch
-      right_shoulder_pitch = angle(np.array([right_hip.z, right_hip.y]), np.array([right_shoulder.z, right_shoulder.y]), np.array([right_elbow.z, right_elbow.y]))
-      pitchmode = "Side View"
-  else:
+      #right_shoulder_pitch = angle(np.array([right_hip.z, right_hip.y]), np.array([right_shoulder.z,
+  # right_shoulder.y]), np.array([right_elbow.z, right_elbow.y]))
+     # pitchmode = "Side View"
+  #else:
       # Use the Y=0 plane (top view) to calculate the pitch
-      right_shoulder_pitch = 180.0-angle(np.array([right_elbow.x, right_elbow.z]), np.array([right_shoulder.x, right_shoulder.z]), np.array([left_shoulder.x, left_shoulder.z]))
-      pitchmode = "Top View"
-  
-  return right_elbow_angle,right_shoulder_yaw,right_shoulder_pitch,pitchmode
+      #right_shoulder_pitch = 180.0-angle(np.array([right_elbow.x, right_elbow.z]), np.array([right_shoulder.x,
+  # right_shoulder.z]), np.array([left_shoulder.x, left_shoulder.z]))
+      #pitchmode = "Top View"
+
+  #return right_elbow_angle,right_shoulder_yaw,right_shoulder_pitch,pitchmode
+  return right_elbow_angle,right_shoulder_yaw,right_shoulder_pitch,right_shoulder_roll,pitchmode
 
 def calculate_finger_angles(joint_angles, joint_xyz):
-  
+
   # First finger, fore or index
   # Angles calculated correspond to knuckle flex, knuckle yaw and long tendon length for all fingers,
   # note difference in knuckle yaw for little
@@ -106,7 +127,7 @@ def calculate_finger_angles(joint_angles, joint_xyz):
   joint_angles[1] = angle(joint_xyz[9], joint_xyz[5], joint_xyz[6])
   joint_angles[2] = angle(joint_xyz[5], joint_xyz[6], joint_xyz[7])
   #print(int(joint_angles[0]), int(joint_angles[1]), int(joint_angles[2]))
-  
+
   # Second finger, middle
   joint_angles[3] = angle(joint_xyz[0], joint_xyz[9], joint_xyz[12])
   joint_angles[4] = angle(joint_xyz[13], joint_xyz[9], joint_xyz[10])
@@ -144,16 +165,16 @@ def drawDebugViews(results, hand_points, hcp, hncp, hand_points_norm, pitchmode)
   yaxis[:] = (0, 64, 0)
   zaxis = np.zeros((window_size, window_size, 3), np.uint8)
   zaxis[:] = (64, 0, 0)
-  
+
   # Draw planar projection views for debugging
   if results.pose_world_landmarks is not None:
       last = None
       names = ['Wrist','Elbow','RSho','RHip', 'LHip', 'LSho']
       joints = [mp_pose.PoseLandmark.RIGHT_WRIST, mp_pose.PoseLandmark.RIGHT_ELBOW, mp_pose.PoseLandmark.RIGHT_SHOULDER, mp_pose.PoseLandmark.RIGHT_HIP, mp_pose.PoseLandmark.LEFT_HIP, mp_pose.PoseLandmark.LEFT_SHOULDER]
-      
+
       # Put all the world landmark positions for the joints into numpi array
       world_landmarks = np.array([[results.pose_world_landmarks.landmark[i].x, results.pose_world_landmarks.landmark[i].y, results.pose_world_landmarks.landmark[i].z] for i in joints])
-      
+
       # Center the landmarks in the window
       world_landmarks += 0.5
 
@@ -175,7 +196,7 @@ def drawDebugViews(results, hand_points, hcp, hncp, hand_points_norm, pitchmode)
       world_landmarks = world_landmarks.astype(int)
       cp = cp.astype(int)
       ncp = ncp.astype(int)
-      
+
       for idx in range(len(world_landmarks)):
           landmark = world_landmarks[idx]
           #print(i, landmark)
@@ -202,16 +223,16 @@ def drawDebugViews(results, hand_points, hcp, hncp, hand_points_norm, pitchmode)
           else:
               # Draw a yellow line between the shoulder and the elbow
               cv2.line(xaxis, (world_landmarks[2][2], world_landmarks[2][1]+yoffset), (world_landmarks[1][2], world_landmarks[1][1]+yoffset), (0, 255, 255), 2)
-              
+
               # Draw a yellow line between the sholder and the hip
               cv2.line(xaxis, (world_landmarks[2][2], world_landmarks[2][1]+yoffset), (world_landmarks[3][2], world_landmarks[3][1]+yoffset), (0, 255, 255), 2)
-              
+
           # Draw debug info for the elbow angle
           # Draw a cyan line between the shoulder and the elbow
           cv2.line(zaxis, (world_landmarks[2][0]+2, world_landmarks[2][1]+yoffset+2), (world_landmarks[1][0]+2, world_landmarks[1][1]+yoffset+2), (255, 255, 0), 2)
           # Draw a cyan line between the elbow and the wrist
           cv2.line(zaxis, (world_landmarks[1][0], world_landmarks[1][1]+yoffset), (world_landmarks[0][0], world_landmarks[0][1]+yoffset), (255, 255, 0), 2)
-          
+
           # Draw debug info for the shoulder yaw
           # Draw a magenta line between the shoulder and the hip
           cv2.line(zaxis, (world_landmarks[2][0], world_landmarks[2][1]+yoffset), (world_landmarks[3][0], world_landmarks[3][1]+yoffset), (255, 0, 255), 2)
@@ -222,15 +243,15 @@ def drawDebugViews(results, hand_points, hcp, hncp, hand_points_norm, pitchmode)
           cv2.circle(zaxis, (cp[0], cp[1]+yoffset), 2, (255, 255, 0), -1)
           cv2.circle(yaxis, (cp[0], cp[2]+yoffset), 2, (255, 255, 0), -1)
           cv2.circle(xaxis, (cp[2], cp[1]+yoffset), 2, (255, 255, 0), -1)
-          
+
           # Draw normal line
           cv2.line(zaxis, (cp[0], cp[1]+yoffset), (ncp[0], ncp[1]+yoffset), (255, 255, 0), 2)
           cv2.line(yaxis, (cp[0], cp[2]+yoffset), (ncp[0], ncp[2]+yoffset), (255, 255, 0), 2)
           cv2.line(xaxis, (cp[2], cp[1]+yoffset), (ncp[2], ncp[1]+yoffset), (255, 255, 0), 2)
 
 
-      if results.right_hand_landmarks is not None:  
-        
+      if results.right_hand_landmarks is not None:
+
         # Translate the points for rendering in center of screen
         hand_points += 0.5
         hcp += 0.5
@@ -249,7 +270,7 @@ def drawDebugViews(results, hand_points, hcp, hncp, hand_points_norm, pitchmode)
         hncp = hncp.astype(int)
         hcp = hcp.astype(int)
         hand_points_norm = hand_points_norm.astype(int)
-        
+
         # Draw hand points in each view, with unrotated hand in lower right of window
         for i in range(21):
           cv2.circle(zaxis, (hand_points[i][0], hand_points[i][1]+yoffset), 2, (255, 255, 255), -1)
@@ -271,14 +292,14 @@ def drawDebugViews(results, hand_points, hcp, hncp, hand_points_norm, pitchmode)
             cv2.line(zaxis, (hcp[0], hcp[1]+yoffset), (pt[0], pt[1]+yoffset), cols[i], 2)
             cv2.line(yaxis, (hcp[0], hcp[2]+yoffset), (pt[0], pt[2]+yoffset), cols[i], 2)
             cv2.line(xaxis, (hcp[2], hcp[1]+yoffset), (pt[2], pt[1]+yoffset), cols[i], 2)
-                
+
 
   # Show the debug views
   cv2.imshow('YZ Plane (Side View)',xaxis)
   cv2.imshow('XZ Plane (Top View)',yaxis)
   cv2.imshow('XY Plane (Front View)',zaxis)
 
-  
+
   # Move the windows over to the left side of the main window and stack them vertically
   # Only on the first apparence of the debug views, in case the user overrides the positions
   if not hasattr(drawDebugViews, "views_moved"):
@@ -287,10 +308,10 @@ def drawDebugViews(results, hand_points, hcp, hncp, hand_points_norm, pitchmode)
     cv2.moveWindow('XY Plane (Front View)', 0, 0)
     drawDebugViews.views_moved = True
 
-  
+
 def transmit_angles_serial(ser,joint_angles):
   # This code is basically verbatim from the original demo
-  
+
   # Generate checksum
   sum = np.sum(joint_angles)
   sum = sum & 0x000000FF
@@ -454,11 +475,11 @@ with mp_holistic.Holistic(
         results.right_hand_landmarks,
         mp_holistic.HAND_CONNECTIONS,
         landmark_drawing_spec=mp_drawing_styles
-        .get_default_hand_landmarks_style())   
-    
+        .get_default_hand_landmarks_style())
+
     # Once mediapipe has processed the frame, we can scale it down for display
     image = cv2.resize(image, (args.preview_width,args.preview_height))
-    
+
     # Create array with enough space for all calculated angles
     joint_angles = np.zeros(23)
 
@@ -466,12 +487,12 @@ with mp_holistic.Holistic(
     hand_points = None
     wrist_rotation = 0.0
     is_valid_frame = True
-    
+
     if results.right_hand_landmarks is not None:
       hand_landmarks = results.right_hand_landmarks
-          
+
       # Create a numpy array of the hand landmarks
-      hand_points = np.array([[hand_landmarks.landmark[i].x, hand_landmarks.landmark[i].y, hand_landmarks.landmark[i].z] for i in range(21)]) 
+      hand_points = np.array([[hand_landmarks.landmark[i].x, hand_landmarks.landmark[i].y, hand_landmarks.landmark[i].z] for i in range(21)])
 
       # The idea here is to rotate the hand so that the middle finger points up to make it more consistent to pick off
       # angles including the rotation angle around the wrist which isn't easily obtained otherwise.
@@ -493,7 +514,7 @@ with mp_holistic.Holistic(
       # Use normalized points to calculate hand rotation in the Y=0 plane
       index = hand_points_norm[mp_hand.HandLandmark.INDEX_FINGER_MCP]
       pinky = hand_points_norm[mp_hand.HandLandmark.PINKY_MCP]
-      zaxis = hand_points_norm[mp_hand.HandLandmark.PINKY_MCP] + np.array([0.0,0.0,1.0]) 
+      zaxis = hand_points_norm[mp_hand.HandLandmark.PINKY_MCP] + np.array([0.0,0.0,1.0])
       rel = index - pinky
 
       # Depending on which side of the hand the thumb is on, the angle will be positive or negative
@@ -502,16 +523,16 @@ with mp_holistic.Holistic(
         np.array([index[0], index[2]]),
         np.array([pinky[0], pinky[2]]),
         np.array([zaxis[0], zaxis[2]]))
-      
+
       if (rel[0] < 0): # Look at X axis direction beteen index finger mcp and pinky to determine direction of hand
         wrist_rotation = 360-wrist_rotation
-    
-      
+
+
       # Calculate finger joint angles
       hand_angles = calculate_finger_angles(joint_angles, hand_points_norm)
 
       # Calculate wrist angles
-      
+
       # Model does not seem to be in the same origin as the pose, so we need to translate
       # the hand points to the pose frame of reference if we want to compare them
       pose_wrist = landmark_to_np(results.pose_world_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_WRIST])
@@ -537,7 +558,7 @@ with mp_holistic.Holistic(
       right_elbow = landmark_to_np(results.pose_world_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_ELBOW])
       fk = hand_points[0]+hand_normal
       joint_angles[16] = angle(fk, hand_points[0], right_elbow)-30.0  # The 30.0 is an empirical fudge factor - I don't know why this angle is offset
-      
+
       # Use Middle finger calculate wrist yaw
       wrist_yaw = angle(hand_points[mp_hand.HandLandmark.MIDDLE_FINGER_MCP], hand_points[mp_hand.HandLandmark.WRIST], np.array([1.0,0,0]))
       joint_angles[17] = 180.0-wrist_yaw
@@ -547,15 +568,15 @@ with mp_holistic.Holistic(
       #print(int(joint_angles[16]), int(joint_angles[17]), int(joint_angles[18]))
     else: # No hand detected
       is_valid_frame = False
-    
+
     # Calculate pose angles
     if results.pose_world_landmarks is not None:
         # Grab our points of interest for easy access
-        right_elbow_angle,right_shoulder_yaw,right_shoulder_pitch,pitchmode = calculate_pose_angles(results.pose_world_landmarks)
+        right_elbow_angle,right_shoulder_yaw,right_shoulder_pitch,right_shoulder_roll,pitchmode = calculate_pose_angles(results.pose_world_landmarks)
 
         joint_angles[19] = right_shoulder_pitch
         joint_angles[20] = right_shoulder_yaw
-        joint_angles[21] = 0.0 # Right shoulder roll TBD
+        joint_angles[21] = right_shoulder_roll
         joint_angles[22] = right_elbow_angle
     else: # No arm detected
         is_valid_frame = False
@@ -570,7 +591,7 @@ with mp_holistic.Holistic(
       if args.enable_serial:
           transmit_angles_serial(ser,joint_angles)
 
-      # Reset timer    
+      # Reset timer
       serial_timestamp = time.time()
 
     # Calculate a point to approximate the center of the torso at the midpoint between the left shoulder and right hip
@@ -578,24 +599,24 @@ with mp_holistic.Holistic(
         right_hip = results.pose_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_HIP]
         left_shoulder = results.pose_landmarks.landmark[mp_pose.PoseLandmark.LEFT_SHOULDER]
         torso_center = np.array([right_hip.x+left_shoulder.x, right_hip.y+left_shoulder.y, right_hip.z+left_shoulder.z])/2.0
-        
+
         torso_render = torso_center*np.array([image.shape[1], image.shape[0], 0.0])
         torso_render = torso_render.astype(int)
 
         cv2.circle(image, (torso_render[0],torso_render[1]), 4, (255, 255, 0), -1)
-    
+
 
     # Flip the image horizontally for a selfie-view display.
     flipped_image = cv2.flip(image, 1)
 
     # Add annotations after flipping the image
     if is_valid_frame and show_debug_views:
-        
+
         # Screen points for drawing text
         screen_right_elbow = results.pose_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_ELBOW]
         screen_right_shoulder = results.pose_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_SHOULDER]
         screen_right_wrist = results.pose_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_WRIST]
-        
+
         # Elbow
         cv2.rectangle(flipped_image, (int(image.shape[1] - screen_right_elbow.x * image.shape[1]) + 5, int(screen_right_elbow.y * image.shape[0]) - 15), (int(image.shape[1] - screen_right_elbow.x * image.shape[1]) + 100, int(screen_right_elbow.y * image.shape[0]) + 5), (0, 0, 0), -1)
         cv2.putText(flipped_image, "Elb: {:.2f}".format(right_elbow_angle), (5+int(image.shape[1] - screen_right_elbow.x * image.shape[1]), int(screen_right_elbow.y * image.shape[0])), cv2.FONT_HERSHEY_SIMPLEX, 0.5, visibilityToColour(screen_right_elbow.visibility), 1, cv2.LINE_AA)
@@ -603,14 +624,14 @@ with mp_holistic.Holistic(
         # Wrist
         cv2.rectangle(flipped_image, (int(image.shape[1] - screen_right_wrist.x * image.shape[1]) + 5, int(screen_right_wrist.y * image.shape[0]) - 15), (int(image.shape[1] - screen_right_wrist.x * image.shape[1]) + 100, int(screen_right_wrist.y * image.shape[0]) + 5), (0, 0, 0), -1)
         cv2.putText(flipped_image, "Wri: {:.2f}".format(wrist_rotation), (5+int(image.shape[1] - screen_right_wrist.x * image.shape[1]), int(screen_right_wrist.y * image.shape[0])), cv2.FONT_HERSHEY_SIMPLEX, 0.5, visibilityToColour(screen_right_wrist.visibility), 1, cv2.LINE_AA)
-        
-        # Shoulder
-        cv2.rectangle(flipped_image, (int(image.shape[1] - screen_right_shoulder.x * image.shape[1]) + 5, int(screen_right_shoulder.y * image.shape[0]) - 15), (int(image.shape[1] - screen_right_shoulder.x * image.shape[1]) + 200, int(screen_right_shoulder.y * image.shape[0]) + 5), (0, 0, 0), -1)
-        cv2.putText(flipped_image, "Sh Yaw:{:.2f} Pit:{:.2f}".format(5+right_shoulder_yaw, right_shoulder_pitch), (int(image.shape[1] - screen_right_shoulder.x * image.shape[1]), int(screen_right_shoulder.y * image.shape[0])), cv2.FONT_HERSHEY_SIMPLEX, 0.5, visibilityToColour(screen_right_shoulder.visibility), 1, cv2.LINE_AA)
 
-    
-    
-    
+        # Shoulder
+        cv2.rectangle(flipped_image, (int(image.shape[1] - screen_right_shoulder.x * image.shape[1]) + 5, int(screen_right_shoulder.y * image.shape[0]) - 15), (int(image.shape[1] - screen_right_shoulder.x * image.shape[1]) + 250, int(screen_right_shoulder.y * image.shape[0]) + 5), (0, 0, 0), -1)
+        cv2.putText(flipped_image, "Sh Yaw:{:.2f} Pit:{:.2f} Roll:{:.2f}".format(right_shoulder_yaw, right_shoulder_pitch, right_shoulder_roll), (int(image.shape[1] - screen_right_shoulder.x * image.shape[1]), int(screen_right_shoulder.y * image.shape[0])), cv2.FONT_HERSHEY_SIMPLEX, 0.5, visibilityToColour(screen_right_shoulder.visibility), 1, cv2.LINE_AA)
+
+
+
+
     # Debug output
     if (is_valid_frame and show_debug_views):
       drawDebugViews(results, hand_points, hcp, hncp, hand_points_norm, pitchmode)
@@ -622,12 +643,12 @@ with mp_holistic.Holistic(
     cv2.rectangle(flipped_image, (0, 0), (200, 40), (0, 0, 0), -1)
     cv2.putText(flipped_image, "FPS: {:.2f}".format(frame_rate), (5, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 1, cv2.LINE_AA)
 
-    # Render view    
+    # Render view
     cv2.imshow('MediaPipe Pose', flipped_image)
 
-        
+
     # Keyboard input
-    key = cv2.waitKey(1) & 0xFF    
+    key = cv2.waitKey(1) & 0xFF
     if key == 27:
       break
     elif key == ord('d'):
@@ -636,8 +657,8 @@ with mp_holistic.Holistic(
         cv2.destroyWindow('YZ Plane (Side View)')
         cv2.destroyWindow('XZ Plane (Top View)')
         cv2.destroyWindow('XY Plane (Front View)')
-    
-      
+
+
 # Clean up camera and windows
 cvcam.stop()
 cv2.destroyAllWindows()
