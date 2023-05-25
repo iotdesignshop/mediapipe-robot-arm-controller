@@ -576,7 +576,7 @@ with mp_holistic.Holistic(
 
         joint_angles[19] = right_shoulder_pitch
         joint_angles[20] = right_shoulder_yaw
-        joint_angles[21] = right_shoulder_roll
+        joint_angles[21] = right_shoulder_roll + 180
         joint_angles[22] = right_elbow_angle
     else: # No arm detected
         is_valid_frame = False
